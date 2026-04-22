@@ -34,8 +34,7 @@
         <button id="talkBtn">🎤 Спросить робота</button>
     </div>
 
-    <script>
-        // --- КОНФИГУРАЦИЯ ---
+<script>
         const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4"; 
 
         const video = document.getElementById('video');
@@ -52,48 +51,73 @@
         let lastBTTime = 0;
         
         let videoDevices = [];
-        let currentDeviceIdx = 0;
+        let currentIdx = 0;
 
+        // --- 1. BLUETOOTH (БЕЗ ИЗМЕНЕНИЙ) ---
+        connectBtn.onclick = async () => {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'LEGO' }],
+                    optionalServices: ['00001623-1212-efde-1523-785feabcd123']
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
+                hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
+                status.innerText = "LEGO CONNECTED";
+                connectBtn.style.display = "none";
+                talkBtn.style.display = "block";
+            } catch (e) { status.innerText = "BT Error"; }
+        };
+
+        async function sendLegoMove(left, right) {
+            const now = Date.now();
+            if (!hubChar || isBTBusy || now - lastBTTime < 130) return;
+            isBTBusy = true; lastBTTime = now;
+            const cmdA = new Uint8Array([0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff]);
+            const cmdB = new Uint8Array([0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]);
+            try {
+                await hubChar.writeValueWithoutResponse(cmdA);
+                await new Promise(r => setTimeout(r, 50));
+                await hubChar.writeValueWithoutResponse(cmdB);
+            } catch (e) {} finally { isBTBusy = false; }
+        }
+
+        // --- 2. УЛЬТИМАТИВНЫЙ SETUP ДЛЯ SAMSUNG A53 ---
         async function setup() {
             try {
                 status.innerText = "Загрузка ИИ...";
                 model = await blazeface.load();
                 
-                // 1. Просим доступ, чтобы открылись названия камер
-                const initStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                initStream.getTracks().forEach(t => t.stop());
-
-                // 2. Получаем список всех камер
+                // ШАГ 1: Хардкорный запрос прав (нужен для Samsung)
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                
+                // ШАГ 2: Получаем список всех камер
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 videoDevices = devices.filter(d => d.kind === 'videoinput');
 
-                if (videoDevices.length > 0) {
-                    // Ищем камеру, которая похожа на внешнюю по названию
-                    let usbCamIdx = videoDevices.findIndex(d => 
-                        d.label.toLowerCase().includes('usb') || 
-                        d.label.toLowerCase().includes('external') ||
-                        d.label.toLowerCase().includes('uvc')
-                    );
+                // Логика для Samsung: Внешняя вебка часто появляется под индексом 0 или самым последним
+                // Ищем по ключевым словам
+                let webCamIdx = videoDevices.findIndex(d => 
+                    d.label.toLowerCase().includes('usb') || 
+                    d.label.toLowerCase().includes('external') ||
+                    d.label.toLowerCase().includes('video0') // Частое имя для OTG камер
+                );
 
-                    // Если нашли по имени — берем её, если нет — пробуем индекс 1 (обычно это внешняя)
-                    currentDeviceIdx = usbCamIdx !== -1 ? usbCamIdx : (videoDevices.length > 1 ? 1 : 0);
-                    
-                    await startStream(currentDeviceIdx);
-                }
-            } catch (e) {
-                status.innerText = "Ошибка камеры: " + e.message;
-            }
+                // Если не нашли по имени, на Samsung вебка обычно встает в конец списка
+                currentIdx = webCamIdx !== -1 ? webCamIdx : videoDevices.length - 1;
+                
+                await startStream(currentIdx);
+            } catch (e) { status.innerText = "Ошибка: " + e.message; }
         }
 
         async function startStream(idx) {
-            if (window.currentStream) {
-                window.currentStream.getTracks().forEach(t => t.stop());
-            }
+            if (window.currentStream) window.currentStream.getTracks().forEach(t => t.stop());
 
             const constraints = {
                 video: { 
                     deviceId: { exact: videoDevices[idx].deviceId },
-                    frameRate: { ideal: 30 }
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
                 }
             };
 
@@ -108,12 +132,55 @@
                 };
                 status.innerText = "Камера: " + (videoDevices[idx].label || "Внешняя");
             } catch (e) {
-                // Если "силовой" выбор по ID не сработал, откатываемся на обычный режим
+                // Если не получилось по ID, включаем что есть
                 const fallback = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = fallback;
                 detect();
             }
         }
+
+        // --- 3. VISION & GEMINI (БЕЗ ИЗМЕНЕНИЙ) ---
+        async function processWithAI(text) {
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: `Кратко ответь: ${text}` }] }] })
+                });
+                const data = await res.json();
+                const reply = data.candidates[0].content.parts[0].text;
+                aiBox.innerText = reply;
+                isSpeaking = true;
+                const msg = new SpeechSynthesisUtterance(reply);
+                msg.onend = () => isSpeaking = false;
+                window.speechSynthesis.speak(msg);
+            } catch (e) {}
+        }
+
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.lang = 'ru-RU';
+            recognition.onresult = (e) => processWithAI(e.results[0][0].transcript);
+        }
+        talkBtn.onclick = () => recognition.start();
+
+        async function detect() {
+            if (isSpeaking) { requestAnimationFrame(detect); return; }
+            const preds = await model.estimateFaces(video, false);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0,0, canvas.width, canvas.height);
+            if (preds.length > 0) {
+                const face = preds[0];
+                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0])/2;
+                const center = canvas.width / 2;
+                ctx.strokeStyle = "#00ff88"; ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
+                if (x < center - 65) sendLegoMove(30, -30);
+                else if (x > center + 65) sendLegoMove(-30, 30);
+                else sendLegoMove(0, 0);
+            } else { sendLegoMove(0, 0); }
+            requestAnimationFrame(detect);
+        }
+
         setup();
     </script>
 </body>
