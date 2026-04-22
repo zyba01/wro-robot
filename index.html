@@ -83,43 +83,60 @@
         }
 
         // --- 2. УЛЬТИМАТИВНЫЙ SETUP ДЛЯ SAMSUNG A53 ---
+let videoDevices = [];
+        let currentDeviceIdx = 0;
+
         async function setup() {
             try {
-                status.innerText = "Загрузка ИИ...";
+                status.innerText = "Нажми сюда для смены камеры";
+                status.style.cursor = "pointer";
+                
                 model = await blazeface.load();
                 
-                // ШАГ 1: Хардкорный запрос прав (нужен для Samsung)
-                await navigator.mediaDevices.getUserMedia({ video: true });
-                
-                // ШАГ 2: Получаем список всех камер
+                // Запрашиваем права
+                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                tempStream.getTracks().forEach(t => t.stop());
+
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 videoDevices = devices.filter(d => d.kind === 'videoinput');
 
-                // Логика для Samsung: Внешняя вебка часто появляется под индексом 0 или самым последним
-                // Ищем по ключевым словам
-                let webCamIdx = videoDevices.findIndex(d => 
-                    d.label.toLowerCase().includes('usb') || 
-                    d.label.toLowerCase().includes('external') ||
-                    d.label.toLowerCase().includes('video0') // Частое имя для OTG камер
-                );
-
-                // Если не нашли по имени, на Samsung вебка обычно встает в конец списка
-                currentIdx = webCamIdx !== -1 ? webCamIdx : videoDevices.length - 1;
-                
-                await startStream(currentIdx);
-            } catch (e) { status.innerText = "Ошибка: " + e.message; }
+                // На Samsung вебка часто НЕ последняя. Начинаем перебор.
+                await startCamera(0);
+            } catch (e) {
+                status.innerText = "Ошибка: " + e.message;
+            }
         }
 
-        async function startStream(idx) {
+        async function startCamera(idx) {
             if (window.currentStream) window.currentStream.getTracks().forEach(t => t.stop());
 
             const constraints = {
                 video: { 
                     deviceId: { exact: videoDevices[idx].deviceId },
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
+                    width: 640, height: 480 
                 }
             };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                window.currentStream = stream;
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    if (isTracking) detect();
+                };
+                status.innerText = `Камера ${idx+1}/${videoDevices.length}: ${videoDevices[idx].label || 'Неизвестно'}`;
+            } catch (e) {
+                status.innerText = "Эта линза заблокирована системой";
+            }
+        }
+
+        // Клик по тексту статуса переключает камеру
+        status.onclick = () => {
+            currentDeviceIdx = (currentDeviceIdx + 1) % videoDevices.length;
+            startCamera(currentDeviceIdx);
+        };
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
