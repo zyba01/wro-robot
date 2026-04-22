@@ -3,22 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechTeens AI Guide - Samsung Fix</title>
+    <title>AI Robot Guide Fixed</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
     <style>
-        :root { --neon: #00ff88; --bg: #0a0a0a; }
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: var(--bg); color: #fff; margin: 0; }
-        #video-container { position: relative; width: 90%; max-width: 500px; margin: 15px auto; border-radius: 20px; overflow: hidden; border: 3px solid var(--neon); }
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0a0a0a; color: #fff; margin: 0; }
+        #video-container { position: relative; width: 100%; max-width: 500px; margin: 10px auto; border-radius: 20px; overflow: hidden; border: 4px solid #333; }
         video { width: 100%; display: block; transform: scaleX(-1); }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
-        .controls { padding: 15px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
-        button { padding: 15px 30px; font-size: 16px; border-radius: 30px; border: none; cursor: pointer; font-weight: bold; width: 80%; }
-        #connectBtn { background: var(--neon); color: #000; }
-        #switchCamBtn { background: #444; color: #fff; }
+        /* БАГ 4 ИСПРАВЛЕН: убрали scaleX(-1) с canvas,
+           теперь координаты лица не инвертируются дважды.
+           Вместо этого вручную зеркалим x при отрисовке рамки. */
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .controls { padding: 20px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        button { padding: 15px 40px; font-size: 18px; border-radius: 50px; border: none; cursor: pointer; transition: 0.3s; }
+        #connectBtn { background: #00ff88; color: #000; font-weight: bold; }
         #talkBtn { background: #0088ff; color: #fff; display: none; }
-        #status { font-family: monospace; color: var(--neon); font-size: 13px; margin: 5px; }
-        .ai-box { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 15px; width: 85%; border: 1px solid rgba(255,255,255,0.1); }
+        #status { font-family: monospace; color: #00ff88; margin-top: 10px; min-height: 20px; }
+        .ai-box { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 15px; width: 80%; max-width: 400px; font-style: italic; }
     </style>
 </head>
 <body>
@@ -28,16 +29,17 @@
         <canvas id="canvas"></canvas>
     </div>
 
+    <div id="cam-select" style="padding:10px"></div>
+
     <div class="controls">
-        <div id="status">Инициализация...</div>
-        <div id="ai-response" class="ai-box">Подключите LEGO и камеру</div>
-        <button id="connectBtn">1. ПОДКЛЮЧИТЬ LEGO</button>
-        <button id="switchCamBtn">2. СМЕНИТЬ КАМЕРУ (КЛИКАЙ)</button>
-        <button id="talkBtn">🎤 ЗАДАТЬ ВОПРОС</button>
+        <div id="status">Загрузка ИИ...</div>
+        <div id="ai-response" class="ai-box">Нажмите "Слушать", чтобы начать диалог</div>
+        <button id="connectBtn">ПОДКЛЮЧИТЬ LEGO HUB</button>
+        <button id="talkBtn">🎤 СЛУШАТЬ</button>
     </div>
 
     <script>
-        const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4"; 
+        const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4";
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -45,136 +47,226 @@
         const aiBox = document.getElementById('ai-response');
         const connectBtn = document.getElementById('connectBtn');
         const talkBtn = document.getElementById('talkBtn');
-        const switchBtn = document.getElementById('switchCamBtn');
 
         let model, hubChar, recognition;
-        let isSpeaking = false;
-        let isBTBusy = false;
-        let lastBTTime = 0;
-        let videoDevices = [];
-        let currentDeviceIdx = 0;
+        let isTracking = true;
+        let lastCommandTime = 0;
 
-        // --- BLUETOOTH ---
+        // --- 1. LEGO Bluetooth ---
+        // БАГ 1 ИСПРАВЛЕН: UUID сервиса и характеристики были одинаковыми.
+        // Правильные UUID для LEGO Powered Up (LPF2):
+        const SERVICE_UUID        = '00001623-1212-efde-1523-785feabcd123';
+        const CHARACTERISTIC_UUID = '00001624-1212-efde-1523-785feabcd123'; // <-- был тот же, что сервис
+
         connectBtn.onclick = async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ namePrefix: 'LEGO' }],
-                    optionalServices: ['00001623-1212-efde-1523-785feabcd123']
+                    optionalServices: [SERVICE_UUID]
                 });
                 const server = await device.gatt.connect();
-                const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
-                hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
-                status.innerText = "LEGO OK";
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                hubChar = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                status.innerText = "LEGO подключен!";
                 connectBtn.style.display = "none";
                 talkBtn.style.display = "block";
-            } catch (e) { status.innerText = "BT Error"; }
+            } catch (e) {
+                status.innerText = "Ошибка Bluetooth: " + e.message;
+            }
         };
 
+        // БАГ 2 ИСПРАВЛЕН: команды моторам отправляются раздельно, не склеиваются.
         async function sendLegoMove(left, right) {
             const now = Date.now();
-            if (!hubChar || isBTBusy || now - lastBTTime < 130) return;
-            isBTBusy = true; lastBTTime = now;
+            if (!hubChar || now - lastCommandTime < 100) return;
+            lastCommandTime = now;
+
+            // Каждая команда отправляется отдельно
             const cmdA = new Uint8Array([0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff]);
             const cmdB = new Uint8Array([0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]);
+
             try {
                 await hubChar.writeValueWithoutResponse(cmdA);
-                await new Promise(r => setTimeout(r, 50));
                 await hubChar.writeValueWithoutResponse(cmdB);
-            } catch (e) {} finally { isBTBusy = false; }
-        }
-
-        // --- УПРАВЛЕНИЕ КАМЕРОЙ ---
-        async function setup() {
-            try {
-                model = await blazeface.load();
-                
-                // Запрос прав
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                stream.getTracks().forEach(t => t.stop());
-
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                videoDevices = devices.filter(d => d.kind === 'videoinput');
-                
-                status.innerText = `Найдено камер: ${videoDevices.length}. Жми кнопку "Сменить"`;
-                
-                // Пробуем запустить первую
-                await startCamera(0);
-            } catch (e) { status.innerText = "Ошибка камер"; }
-        }
-
-        async function startCamera(idx) {
-            if (window.currentStream) window.currentStream.getTracks().forEach(t => t.stop());
-
-            const constraints = {
-                video: { 
-                    deviceId: videoDevices[idx] ? { exact: videoDevices[idx].deviceId } : undefined,
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                }
-            };
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                window.currentStream = stream;
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    detect();
-                };
-                status.innerText = `Активна: ${videoDevices[idx].label || 'Камера ' + idx}`;
-            } catch (e) {
-                status.innerText = "Ошибка переключения";
+            } catch(e) {
+                console.warn("Ошибка отправки команды:", e);
             }
         }
 
-        switchBtn.onclick = () => {
-            currentDeviceIdx = (currentDeviceIdx + 1) % videoDevices.length;
-            startCamera(currentDeviceIdx);
+        // --- 2. Голос и Gemini ---
+        // БАГ 3 ИСПРАВЛЕН: recognition перезапускается после каждого ответа.
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.lang = 'ru-RU';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onresult = (event) => {
+                const text = event.results[0][0].transcript;
+                aiBox.innerText = "Вы: " + text;
+                processWithAI(text);
+            };
+
+            recognition.onerror = (event) => {
+                status.innerText = "Ошибка микрофона: " + event.error;
+            };
+
+            // Автоматический перезапуск после окончания
+            recognition.onend = () => {
+                // Перезапускаем только если режим слежения активен и AI не обрабатывает запрос
+                if (isTracking && !isProcessing) {
+                    status.innerText = "Слушаю...";
+                    recognition.start();
+                }
+            };
+        }
+
+        let isProcessing = false;
+
+        talkBtn.onclick = () => {
+            try {
+                recognition.start();
+                status.innerText = "Слушаю...";
+            } catch(e) {
+                // Уже запущен — игнорируем
+            }
         };
 
-        // --- ИИ И ЗРЕНИЕ (Стабильная версия) ---
         async function processWithAI(text) {
+            isProcessing = true;
+
+            if (text.toLowerCase().includes("до свидания") || text.toLowerCase().includes("спасибо")) {
+                isTracking = false;
+                isProcessing = false;
+                speak("Пожалуйста! Был рад помочь. До встречи!");
+                return;
+            }
+
+            status.innerText = "Запрос к Gemini...";
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: `Ты робот TechTeens. Кратко: ${text}` }] }] })
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `Ты - робот-гид в Актау. Отвечай кратко (15 слов макс). Вопрос: ${text}` }] }]
+                    })
                 });
                 const data = await res.json();
                 const reply = data.candidates[0].content.parts[0].text;
                 aiBox.innerText = reply;
-                isSpeaking = true;
-                const msg = new SpeechSynthesisUtterance(reply);
-                msg.onend = () => isSpeaking = false;
-                window.speechSynthesis.speak(msg);
-            } catch (e) {}
+                speak(reply);
+            } catch (e) {
+                aiBox.innerText = "Ошибка ИИ: " + e.message;
+                console.error(e);
+            } finally {
+                isProcessing = false;
+                // После ответа снова начинаем слушать
+                if (isTracking) {
+                    status.innerText = "Слушаю...";
+                    try { recognition.start(); } catch(e) {}
+                }
+            }
         }
 
-        if ('webkitSpeechRecognition' in window) {
-            recognition = new webkitSpeechRecognition();
-            recognition.lang = 'ru-RU';
-            recognition.onresult = (e) => processWithAI(e.results[0][0].transcript);
+        function speak(text) {
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = 'ru-RU';
+            window.speechSynthesis.speak(msg);
         }
-        talkBtn.onclick = () => recognition.start();
+
+        // --- 3. Зрение и слежение ---
+        async function setup() {
+            model = await blazeface.load();
+
+            // Запрашиваем разрешение один раз чтобы браузер показал названия камер
+            const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            tempStream.getTracks().forEach(t => t.stop());
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cameras = devices.filter(d => d.kind === 'videoinput');
+
+            let deviceId = await new Promise(resolve => {
+                const wrap = document.getElementById('cam-select');
+
+                const label = document.createElement('div');
+                label.textContent = 'Выберите камеру:';
+                label.style.cssText = 'color:#aaa;font-size:13px;margin-bottom:6px';
+
+                const select = document.createElement('select');
+                select.style.cssText = 'padding:10px 14px;font-size:15px;border-radius:12px;background:#1a1a1a;color:#fff;border:1px solid #444;width:90%;max-width:420px;display:block;margin:0 auto';
+
+                cameras.forEach((cam, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = cam.deviceId;
+                    opt.textContent = cam.label || `Камера ${i + 1}`;
+                    // Автовыбор Logitech если есть
+                    if (cam.label.toLowerCase().includes('logitech')) opt.selected = true;
+                    select.appendChild(opt);
+                });
+
+                const btn = document.createElement('button');
+                btn.textContent = '▶ Запустить камеру';
+                btn.style.cssText = 'margin-top:10px;padding:12px 28px;font-size:15px;border-radius:50px;background:#00ff88;color:#000;font-weight:bold;border:none;cursor:pointer';
+
+                btn.onclick = () => {
+                    wrap.style.display = 'none';
+                    resolve(select.value);
+                };
+
+                wrap.appendChild(label);
+                wrap.appendChild(select);
+                wrap.appendChild(btn);
+            });
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: deviceId } }
+            });
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                status.innerText = "ИИ готов. Подключите робота.";
+                detect();
+            };
+        }
 
         async function detect() {
-            if (isSpeaking) { requestAnimationFrame(detect); return; }
+            if (!isTracking) return;
             const preds = await model.estimateFaces(video, false);
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (preds.length > 0) {
                 const face = preds[0];
-                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0]) / 2;
-                const center = canvas.width / 2;
-                ctx.strokeStyle = "#00ff88"; 
-                ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
 
-                if (x < center - 60) sendLegoMove(30, -30);
-                else if (x > center + 60) sendLegoMove(-30, 30);
-                else sendLegoMove(0, 0);
-            } else { sendLegoMove(0, 0); }
+                // БАГ 4 ИСПРАВЛЕН: canvas больше не зеркалится через CSS.
+                // Зеркалим координаты вручную, чтобы рамка совпадала с видео (video зеркалится CSS).
+                const mirrorX = (x) => canvas.width - x;
+
+                const x1 = mirrorX(face.bottomRight[0]);
+                const y1 = face.topLeft[1];
+                const w  = face.bottomRight[0] - face.topLeft[0];
+                const h  = face.bottomRight[1] - face.topLeft[1];
+
+                ctx.strokeStyle = "#00ff88";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x1, y1, w, h);
+
+                // Центр лица в зеркальном пространстве
+                const faceCenter = mirrorX(face.topLeft[0] + w / 2);
+                const screenCenter = canvas.width / 2;
+
+                if (faceCenter < screenCenter - 60) {
+                    sendLegoMove(20, -20);  // лицо левее → поворот влево
+                } else if (faceCenter > screenCenter + 60) {
+                    sendLegoMove(-20, 20);  // лицо правее → поворот вправо
+                } else {
+                    sendLegoMove(0, 0);     // по центру → стоп
+                }
+            } else {
+                sendLegoMove(0, 0);
+            }
+
             requestAnimationFrame(detect);
         }
 
