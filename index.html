@@ -126,17 +126,50 @@
         }
 
         // --- 3. ЗРЕНИЕ И СЛЕЖЕНИЕ ---
-        async function setup() {
-            model = await blazeface.load();
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                status.innerText = "ИИ готов. Подключите робота.";
-                detect();
+       async function setup() {
+    try {
+        status.innerText = "Поиск внешней камеры...";
+        model = await blazeface.load();
+        
+        // Получаем список всех камер
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        
+        let constraints;
+
+        // Если систем нашла больше одной камеры (своя + вебка)
+        if (videoDevices.length > 1) {
+            // Выбираем последнюю камеру (обычно это внешняя USB-вебка)
+            const webCamId = videoDevices[videoDevices.length - 1].deviceId;
+            constraints = { 
+                video: { 
+                    deviceId: { exact: webCamId },
+                    frameRate: { ideal: 30 } 
+                } 
             };
+            status.innerText = "Внешняя камера подключена!";
+        } else {
+            // Если вебка не видна, включаем стандартную
+            constraints = { 
+                video: { facingMode: "user" },
+                frameRate: { ideal: 30 } 
+            };
+            status.innerText = "Использую встроенную камеру";
         }
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        
+        video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            detect(); // Запуск распознавания лиц
+        };
+    } catch (e) { 
+        status.innerText = "Ошибка доступа к камере!";
+        console.error(e);
+    }
+}
 
         async function detect() {
             if (!isTracking) return;
