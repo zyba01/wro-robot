@@ -50,161 +50,70 @@
         let isSpeaking = false;
         let isBTBusy = false;
         let lastBTTime = 0;
+        
+        let videoDevices = [];
+        let currentDeviceIdx = 0;
 
-        // --- 1. BLUETOOTH СВЯЗЬ (LEGO LWP) ---
-        connectBtn.onclick = async () => {
-            try {
-                status.innerText = "Поиск LEGO...";
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'LEGO' }],
-                    optionalServices: ['00001623-1212-efde-1523-785feabcd123']
-                });
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
-                hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
-                
-                status.innerText = "РОБОТ ПОДКЛЮЧЕН";
-                connectBtn.style.display = "none";
-                talkBtn.style.display = "block";
-            } catch (e) { 
-                status.innerText = "Ошибка Bluetooth";
-                console.error(e);
-            }
-        };
-
-        async function sendLegoMove(left, right) {
-            const now = Date.now();
-            if (!hubChar || isBTBusy || now - lastBTTime < 130) return;
-            
-            isBTBusy = true;
-            lastBTTime = now;
-
-            // Формируем отдельные пакеты для Порта A (0x00) и B (0x01)
-            const cmdA = new Uint8Array([0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff]);
-            const cmdB = new Uint8Array([0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]);
-            
-            try {
-                await hubChar.writeValueWithoutResponse(cmdA);
-                await new Promise(r => setTimeout(r, 50)); // Пауза, чтобы Хаб не "захлебнулся"
-                await hubChar.writeValueWithoutResponse(cmdB);
-            } catch (e) { } finally { isBTBusy = false; }
-        }
-
-        // --- 2. РАСПОЗНАВАНИЕ РЕЧИ И ИИ ---
-        if ('webkitSpeechRecognition' in window) {
-            recognition = new webkitSpeechRecognition();
-            recognition.lang = 'ru-RU';
-            recognition.onresult = (e) => {
-                const text = e.results[0][0].transcript;
-                aiBox.innerText = "Вы: " + text;
-                processWithAI(text);
-            };
-            recognition.onend = () => { if(!isSpeaking) status.innerText = "Готов слушать"; };
-        }
-
-        talkBtn.onclick = () => { 
-            if(!isSpeaking) { 
-                try { recognition.start(); status.innerText = "Слушаю..."; } catch(e) {} 
-            } 
-        };
-
-        async function processWithAI(text) {
-            status.innerText = "Gemini думает...";
-            try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Ты - робот-гид в Актау от TechTeens. Отвечай кратко (10-15 слов). Вопрос: ${text}` }] }]
-                    })
-                });
-                const data = await res.json();
-                const reply = data.candidates[0].content.parts[0].text;
-                aiBox.innerText = reply;
-                speak(reply);
-            } catch (e) { aiBox.innerText = "Ошибка ИИ"; }
-        }
-
-        function speak(text) {
-            isSpeaking = true;
-            if (recognition) recognition.stop();
-            const msg = new SpeechSynthesisUtterance(text);
-            msg.lang = 'ru-RU';
-            msg.onend = () => { isSpeaking = false; status.innerText = "Готов!"; };
-            window.speechSynthesis.speak(msg);
-        }
-
-        // --- 3. ЗРЕНИЕ (ФИКС ВНЕШНЕЙ КАМЕРЫ) ---
         async function setup() {
             try {
-                status.innerText = "Загрузка модели...";
+                status.innerText = "Загрузка ИИ...";
                 model = await blazeface.load();
                 
-                // Сначала запрашиваем любой доступ, чтобы открыть список ID устройств
-                const streamInit = await navigator.mediaDevices.getUserMedia({ video: true });
-                streamInit.getTracks().forEach(track => track.stop());
+                // 1. Просим доступ, чтобы открылись названия камер
+                const initStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                initStream.getTracks().forEach(t => t.stop());
 
+                // 2. Получаем список всех камер
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                const videoDevices = devices.filter(device => device.kind === 'videoinput');
-                
-                let constraints;
-                if (videoDevices.length > 1) {
-                    // Пробуем взять последнюю камеру в списке (обычно это USB)
-                    const webCamId = videoDevices[videoDevices.length - 1].deviceId;
-                    constraints = { 
-                        video: { deviceId: { exact: webCamId }, frameRate: { ideal: 30 } } 
-                    };
-                    status.innerText = "Внешняя камера OK";
-                } else {
-                    constraints = { 
-                        video: { facingMode: "user" }, frameRate: { ideal: 30 } 
-                    };
-                    status.innerText = "Встроеная камера OK";
-                }
+                videoDevices = devices.filter(d => d.kind === 'videoinput');
 
+                if (videoDevices.length > 0) {
+                    // Ищем камеру, которая похожа на внешнюю по названию
+                    let usbCamIdx = videoDevices.findIndex(d => 
+                        d.label.toLowerCase().includes('usb') || 
+                        d.label.toLowerCase().includes('external') ||
+                        d.label.toLowerCase().includes('uvc')
+                    );
+
+                    // Если нашли по имени — берем её, если нет — пробуем индекс 1 (обычно это внешняя)
+                    currentDeviceIdx = usbCamIdx !== -1 ? usbCamIdx : (videoDevices.length > 1 ? 1 : 0);
+                    
+                    await startStream(currentDeviceIdx);
+                }
+            } catch (e) {
+                status.innerText = "Ошибка камеры: " + e.message;
+            }
+        }
+
+        async function startStream(idx) {
+            if (window.currentStream) {
+                window.currentStream.getTracks().forEach(t => t.stop());
+            }
+
+            const constraints = {
+                video: { 
+                    deviceId: { exact: videoDevices[idx].deviceId },
+                    frameRate: { ideal: 30 }
+                }
+            };
+
+            try {
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                window.currentStream = stream;
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     detect();
                 };
-            } catch (e) { status.innerText = "Ошибка камеры!"; }
-        }
-
-        async function detect() {
-            // Если робот говорит или трекинг выключен - не двигаемся
-            if (!isTracking || isSpeaking) {
-                requestAnimationFrame(detect);
-                return;
+                status.innerText = "Камера: " + (videoDevices[idx].label || "Внешняя");
+            } catch (e) {
+                // Если "силовой" выбор по ID не сработал, откатываемся на обычный режим
+                const fallback = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = fallback;
+                detect();
             }
-
-            const preds = await model.estimateFaces(video, false);
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            if (preds.length > 0) {
-                const face = preds[0];
-                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0]) / 2;
-                const center = canvas.width / 2;
-
-                ctx.strokeStyle = "#00ff88";
-                ctx.lineWidth = 4;
-                ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
-
-                const speed = 30; 
-                const deadzone = 65; 
-
-                if (x < center - deadzone) sendLegoMove(speed, -speed);
-                else if (x > center + deadzone) sendLegoMove(-speed, speed);
-                else sendLegoMove(0, 0);
-            } else {
-                sendLegoMove(0, 0);
-            }
-
-            requestAnimationFrame(detect);
         }
-
         setup();
     </script>
 </body>
