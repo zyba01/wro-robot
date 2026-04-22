@@ -3,21 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechTeens AI Guide - Final Build</title>
+    <title>TechTeens AI Guide - Samsung Fix</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
     <style>
         :root { --neon: #00ff88; --bg: #0a0a0a; }
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: var(--bg); color: #fff; margin: 0; overflow: hidden; }
-        #video-container { position: relative; width: 95%; max-width: 500px; margin: 15px auto; border-radius: 25px; overflow: hidden; border: 3px solid var(--neon); box-shadow: 0 0 20px rgba(0,255,136,0.2); }
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: var(--bg); color: #fff; margin: 0; }
+        #video-container { position: relative; width: 90%; max-width: 500px; margin: 15px auto; border-radius: 20px; overflow: hidden; border: 3px solid var(--neon); }
         video { width: 100%; display: block; transform: scaleX(-1); }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
-        .controls { padding: 20px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
-        button { padding: 18px 45px; font-size: 18px; border-radius: 50px; border: none; cursor: pointer; transition: 0.3s; font-weight: bold; text-transform: uppercase; }
-        #connectBtn { background: var(--neon); color: #000; box-shadow: 0 4px 15px rgba(0,255,136,0.4); }
-        #talkBtn { background: #0088ff; color: #fff; display: none; box-shadow: 0 4px 15px rgba(0,136,255,0.4); }
-        #status { font-family: 'Courier New', monospace; color: var(--neon); margin: 5px; font-size: 14px; text-transform: uppercase; }
-        .ai-box { background: rgba(255,255,255,0.05); padding: 25px; border-radius: 20px; width: 85%; max-width: 400px; border: 1px solid rgba(255,255,255,0.1); min-height: 70px; font-size: 17px; }
+        .controls { padding: 15px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+        button { padding: 15px 30px; font-size: 16px; border-radius: 30px; border: none; cursor: pointer; font-weight: bold; width: 80%; }
+        #connectBtn { background: var(--neon); color: #000; }
+        #switchCamBtn { background: #444; color: #fff; }
+        #talkBtn { background: #0088ff; color: #fff; display: none; }
+        #status { font-family: monospace; color: var(--neon); font-size: 13px; margin: 5px; }
+        .ai-box { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 15px; width: 85%; border: 1px solid rgba(255,255,255,0.1); }
     </style>
 </head>
 <body>
@@ -28,13 +29,14 @@
     </div>
 
     <div class="controls">
-        <div id="status">Инициализация систем...</div>
-        <div id="ai-response" class="ai-box">Подключите LEGO и начните диалог</div>
-        <button id="connectBtn">Подключить Хаб</button>
-        <button id="talkBtn">🎤 Спросить робота</button>
+        <div id="status">Инициализация...</div>
+        <div id="ai-response" class="ai-box">Подключите LEGO и камеру</div>
+        <button id="connectBtn">1. ПОДКЛЮЧИТЬ LEGO</button>
+        <button id="switchCamBtn">2. СМЕНИТЬ КАМЕРУ (КЛИКАЙ)</button>
+        <button id="talkBtn">🎤 ЗАДАТЬ ВОПРОС</button>
     </div>
 
-<script>
+    <script>
         const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4"; 
 
         const video = document.getElementById('video');
@@ -43,17 +45,16 @@
         const aiBox = document.getElementById('ai-response');
         const connectBtn = document.getElementById('connectBtn');
         const talkBtn = document.getElementById('talkBtn');
+        const switchBtn = document.getElementById('switchCamBtn');
 
         let model, hubChar, recognition;
-        let isTracking = true;
         let isSpeaking = false;
         let isBTBusy = false;
         let lastBTTime = 0;
-        
         let videoDevices = [];
-        let currentIdx = 0;
+        let currentDeviceIdx = 0;
 
-        // --- 1. BLUETOOTH (БЕЗ ИЗМЕНЕНИЙ) ---
+        // --- BLUETOOTH ---
         connectBtn.onclick = async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
@@ -63,7 +64,7 @@
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
                 hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
-                status.innerText = "LEGO CONNECTED";
+                status.innerText = "LEGO OK";
                 connectBtn.style.display = "none";
                 talkBtn.style.display = "block";
             } catch (e) { status.innerText = "BT Error"; }
@@ -82,29 +83,23 @@
             } catch (e) {} finally { isBTBusy = false; }
         }
 
-        // --- 2. УЛЬТИМАТИВНЫЙ SETUP ДЛЯ SAMSUNG A53 ---
-let videoDevices = [];
-        let currentDeviceIdx = 0;
-
+        // --- УПРАВЛЕНИЕ КАМЕРОЙ ---
         async function setup() {
             try {
-                status.innerText = "Нажми сюда для смены камеры";
-                status.style.cursor = "pointer";
-                
                 model = await blazeface.load();
                 
-                // Запрашиваем права
-                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                tempStream.getTracks().forEach(t => t.stop());
+                // Запрос прав
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                stream.getTracks().forEach(t => t.stop());
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 videoDevices = devices.filter(d => d.kind === 'videoinput');
-
-                // На Samsung вебка часто НЕ последняя. Начинаем перебор.
+                
+                status.innerText = `Найдено камер: ${videoDevices.length}. Жми кнопку "Сменить"`;
+                
+                // Пробуем запустить первую
                 await startCamera(0);
-            } catch (e) {
-                status.innerText = "Ошибка: " + e.message;
-            }
+            } catch (e) { status.innerText = "Ошибка камер"; }
         }
 
         async function startCamera(idx) {
@@ -112,8 +107,9 @@ let videoDevices = [];
 
             const constraints = {
                 video: { 
-                    deviceId: { exact: videoDevices[idx].deviceId },
-                    width: 640, height: 480 
+                    deviceId: videoDevices[idx] ? { exact: videoDevices[idx].deviceId } : undefined,
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
                 }
             };
 
@@ -124,45 +120,26 @@ let videoDevices = [];
                 video.onloadedmetadata = () => {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
-                    if (isTracking) detect();
+                    detect();
                 };
-                status.innerText = `Камера ${idx+1}/${videoDevices.length}: ${videoDevices[idx].label || 'Неизвестно'}`;
+                status.innerText = `Активна: ${videoDevices[idx].label || 'Камера ' + idx}`;
             } catch (e) {
-                status.innerText = "Эта линза заблокирована системой";
+                status.innerText = "Ошибка переключения";
             }
         }
 
-        // Клик по тексту статуса переключает камеру
-        status.onclick = () => {
+        switchBtn.onclick = () => {
             currentDeviceIdx = (currentDeviceIdx + 1) % videoDevices.length;
             startCamera(currentDeviceIdx);
         };
 
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                window.currentStream = stream;
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    detect();
-                };
-                status.innerText = "Камера: " + (videoDevices[idx].label || "Внешняя");
-            } catch (e) {
-                // Если не получилось по ID, включаем что есть
-                const fallback = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = fallback;
-                detect();
-            }
-        }
-
-        // --- 3. VISION & GEMINI (БЕЗ ИЗМЕНЕНИЙ) ---
+        // --- ИИ И ЗРЕНИЕ (Стабильная версия) ---
         async function processWithAI(text) {
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: `Кратко ответь: ${text}` }] }] })
+                    body: JSON.stringify({ contents: [{ parts: [{ text: `Ты робот TechTeens. Кратко: ${text}` }] }] })
                 });
                 const data = await res.json();
                 const reply = data.candidates[0].content.parts[0].text;
@@ -185,14 +162,17 @@ let videoDevices = [];
             if (isSpeaking) { requestAnimationFrame(detect); return; }
             const preds = await model.estimateFaces(video, false);
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0,0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
             if (preds.length > 0) {
                 const face = preds[0];
-                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0])/2;
+                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0]) / 2;
                 const center = canvas.width / 2;
-                ctx.strokeStyle = "#00ff88"; ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
-                if (x < center - 65) sendLegoMove(30, -30);
-                else if (x > center + 65) sendLegoMove(-30, 30);
+                ctx.strokeStyle = "#00ff88"; 
+                ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
+
+                if (x < center - 60) sendLegoMove(30, -30);
+                else if (x > center + 60) sendLegoMove(-30, 30);
                 else sendLegoMove(0, 0);
             } else { sendLegoMove(0, 0); }
             requestAnimationFrame(detect);
