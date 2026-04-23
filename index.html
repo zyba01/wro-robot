@@ -3,491 +3,338 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Guide Aktau — SPIKE Prime</title>
+    <title>TechTeens AI Artifact Scanner</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        :root {
-            --accent: #00ffe5;
-            --accent2: #ff6b00;
-            --bg: #080c10;
-            --panel: #0e1318;
-            --border: #1a2530;
-            --text: #c8dde8;
-            --dim: #4a6070;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: 'Exo 2', sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-            background-image:
-                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(0,255,229,0.05) 0%, transparent 70%),
-                repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.015) 39px, rgba(255,255,255,0.015) 40px),
-                repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.015) 39px, rgba(255,255,255,0.015) 40px);
-        }
-
-        #header {
-            width: 100%; max-width: 540px;
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 16px;
-        }
-        .logo-block h1 {
-            font-weight: 800; font-size: 20px;
-            letter-spacing: 3px; text-transform: uppercase;
-            color: var(--accent);
-            text-shadow: 0 0 20px rgba(0,255,229,0.4);
-        }
-        .logo-block .sub {
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 10px; color: var(--dim); letter-spacing: 2px; margin-top: 2px;
-        }
-
-        .pill {
-            font-family: 'Share Tech Mono', monospace; font-size: 11px;
-            padding: 5px 12px; border-radius: 20px;
-            border: 1px solid var(--border); background: var(--panel);
-            color: var(--dim); display: flex; align-items: center; gap: 6px;
-            transition: all 0.3s;
-        }
-        .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
-        .pill.ok { color: var(--accent); border-color: rgba(0,255,229,0.3); }
-        .pill.ok .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: blink 2s infinite; }
-        .pill.err { color: #ff4444; border-color: rgba(255,68,68,0.3); }
-        .pill.err .dot { background: #ff4444; }
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-        #cam-wrap {
-            position: relative; width: 100%; max-width: 540px;
-            aspect-ratio: 4/3; border-radius: 16px; overflow: hidden;
-            border: 1px solid var(--border);
-            box-shadow: 0 0 40px rgba(0,255,229,0.07), inset 0 0 0 1px rgba(255,255,255,0.03);
-        }
-        video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; }
-        #overlay { position:absolute; top:0; left:0; width:100%; height:100%; transform:scaleX(-1); }
-
-        .corner { position:absolute; width:18px; height:18px; border-color:var(--accent); border-style:solid; opacity:.5; z-index:2; }
-        .corner.tl{top:10px;left:10px;border-width:2px 0 0 2px}
-        .corner.tr{top:10px;right:10px;border-width:2px 2px 0 0}
-        .corner.bl{bottom:10px;left:10px;border-width:0 0 2px 2px}
-        .corner.br{bottom:10px;right:10px;border-width:0 2px 2px 0}
-
-        .scanline {
-            position:absolute; top:0; left:0; right:0; height:2px;
-            background:linear-gradient(90deg,transparent,var(--accent),transparent);
-            opacity:.12; animation:scan 3s linear infinite; z-index:3;
-        }
-        @keyframes scan{0%{top:0}100%{top:100%}}
-
-        #motor-bar {
-            position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
-            display:flex; gap:5px; z-index:4;
-        }
-        .mb { width:7px; height:22px; border-radius:4px; background:rgba(255,255,255,0.07); transition:background .1s; }
-        .mb.al { background:var(--accent); box-shadow:0 0 5px var(--accent); }
-        .mb.ar { background:var(--accent2); box-shadow:0 0 5px var(--accent2); }
-
-        #panels { width:100%; max-width:540px; margin-top:12px; display:flex; flex-direction:column; gap:10px; }
-
-        .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:13px 15px; }
-        .plabel { font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:2px; color:var(--dim); text-transform:uppercase; margin-bottom:7px; }
-
-        #sysLog { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--accent); line-height:1.7; white-space:pre-wrap; max-height:80px; overflow-y:auto; }
-
-        #aiReply { font-size:15px; font-weight:300; line-height:1.6; color:#d0e8f0; min-height:44px; }
-        #aiReply .you { color:var(--dim); font-size:11px; font-family:'Share Tech Mono',monospace; margin-bottom:4px; }
-
-        .stats { display:flex; justify-content:space-between; }
-        .stat { text-align:center; }
-        .stat .sv { font-family:'Share Tech Mono',monospace; font-size:13px; color:var(--dim); transition:color .2s; }
-        .stat .sl { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--dim); letter-spacing:1px; margin-top:3px; }
-
-        #btn-row { display:flex; gap:10px; }
-        button {
-            flex:1; padding:14px; border-radius:10px; border:1px solid transparent;
-            font-family:'Exo 2',sans-serif; font-weight:600; font-size:14px;
-            cursor:pointer; transition:all .2s; letter-spacing:.5px;
-            display:flex; align-items:center; justify-content:center; gap:8px;
-        }
-        #btnConnect { background:var(--accent); color:#000; }
-        #btnConnect:hover { box-shadow:0 0 20px rgba(0,255,229,0.4); transform:translateY(-1px); }
-        #btnConnect:disabled { opacity:.4; cursor:not-allowed; transform:none; }
-
-        #btnTalk { background:transparent; color:var(--accent); border-color:rgba(0,255,229,0.3); display:none; }
-        #btnTalk:hover { background:rgba(0,255,229,0.08); transform:translateY(-1px); }
-        #btnTalk.listening { background:rgba(0,255,229,0.1); border-color:var(--accent); animation:glow 1s infinite alternate; }
-        @keyframes glow { from{box-shadow:0 0 5px rgba(0,255,229,0.2)} to{box-shadow:0 0 18px rgba(0,255,229,0.5)} }
+        :root { --neon: #00ff88; --bg: #0a0a0a; }
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: var(--bg); color: #fff; margin: 0; overflow-x: hidden; }
+        #video-container { position: relative; width: 90%; max-width: 500px; margin: 20px auto; border-radius: 20px; overflow: hidden; border: 3px solid var(--neon); box-shadow: 0 0 20px rgba(0,255,136,0.3); }
+        img#video-stream { width: 100%; display: block; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .controls { padding: 15px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+        button { padding: 16px 35px; font-size: 16px; border-radius: 30px; border: none; cursor: pointer; font-weight: bold; width: 80%; transition: 0.3s; text-transform: uppercase;}
+        #connectBtn { background: var(--neon); color: #000; }
+        #talkBtn { background: #0088ff; color: #fff; display: none; }
+        #status { font-family: 'Courier New', monospace; color: var(--neon); font-size: 14px; margin: 10px; min-height: 1.2em; text-transform: uppercase; }
+        .ai-box { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 15px; width: 85%; border: 1px solid rgba(255,255,255,0.1); min-height: 60px; font-size: 17px;}
     </style>
 </head>
 <body>
 
-<div id="header">
-    <div class="logo-block">
-        <h1>AI Guide · Aktau</h1>
-        <div class="sub">LEGO SPIKE PRIME · FACE TRACKING</div>
-    </div>
-    <div class="pill" id="pill"><span class="dot"></span><span id="pillTxt">OFFLINE</span></div>
-</div>
-
-<div id="cam-wrap">
-    <video id="webcam" autoplay playsinline muted></video>
-    <canvas id="overlay"></canvas>
-    <div class="corner tl"></div><div class="corner tr"></div>
-    <div class="corner bl"></div><div class="corner br"></div>
-    <div class="scanline"></div>
-    <div id="motor-bar">
-        <div class="mb" id="ml1"></div><div class="mb" id="ml2"></div><div class="mb" id="ml3"></div>
-        <div class="mb" id="mr1"></div><div class="mb" id="mr2"></div><div class="mb" id="mr3"></div>
-    </div>
-</div>
-
-<div id="panels">
-    <div class="panel">
-        <div class="stats">
-            <div class="stat"><div class="sv" id="svFace">—</div><div class="sl">ЛИЦО</div></div>
-            <div class="stat"><div class="sv" id="svOffset">—</div><div class="sl">СМЕЩЕНИЕ</div></div>
-            <div class="stat"><div class="sv" id="svSize">—</div><div class="sl">РАЗМЕР</div></div>
-            <div class="stat"><div class="sv" id="svMode">СТОП</div><div class="sl">РЕЖИМ</div></div>
-        </div>
+    <div id="video-container">
+        <img id="video-stream" src="" crossorigin="anonymous">
+        <canvas id="canvas"></canvas>
     </div>
 
-    <div class="panel">
-        <div class="plabel">Системный лог</div>
-        <div id="sysLog">INIT: ОЖИДАНИЕ...</div>
+    <div class="controls">
+        <div id="status">Инициализация систем...</div>
+        <div id="ai-response" class="ai-box">Ожидаю подключения LEGO Хаба...</div>
+        <button id="connectBtn">1. ПОДКЛЮЧИТЬ РОБОТА</button>
+        <button id="talkBtn">🎤 ЗАДАТЬ ВОПРОС ОБ ЭКСПОНАТЕ</button>
     </div>
 
-    <div class="panel">
-        <div class="plabel">AI-гид Актау</div>
-        <div id="aiReply">Нажми «Подключить SPIKE», затем спроси меня про Актау!</div>
-    </div>
+    <script>
+        // --- КОНФИГУРАЦИЯ ---
+        const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4"; 
+        const IP_CAM_URL = "http://192.168.100.6:8081/video"; // IP твоего сервера камеры
 
-    <div id="btn-row">
-        <button id="btnConnect">🔌 Подключить SPIKE</button>
-        <button id="btnTalk">🎤 Задать вопрос</button>
-    </div>
-</div>
+        // Какую категорию объектов будем искать на соревновании для демонстрации подьема?
+        // Популярные в COCO-SSD: "bottle" (бутылка), "cup" (чашка), "book" (книга), "backpack" (рюкзак)
+        const TARGET_LABEL = "bottle"; 
 
-<script>
-// ═══════════════════════════════════════════════════
-//  НАСТРОЙКИ (ВСТАВЬ СЮДА СВОЙ КЛЮЧ GEMINI!)
-// ═══════════════════════════════════════════════════
-const GEMINI_KEY = "ВСТАВЬ_СЮДА_СВОЙ_КЛЮЧ_AIzaSy...";
+        const img = document.getElementById('video-stream');
+        const canvas = document.getElementById('canvas');
+        const status = document.getElementById('status');
+        const aiBox = document.getElementById('ai-response');
+        const connectBtn = document.getElementById('connectBtn');
+        const talkBtn = document.getElementById('talkBtn');
 
-// UUID для связи со SPIKE Prime
-const SERVICE_UUID = '0000fd02-0000-1000-8000-00805f9b34fb';
-const RX_UUID      = '0000fd02-0001-1000-8000-00805f9b34fb'; 
-const TX_UUID      = '0000fd02-0002-1000-8000-00805f9b34fb'; 
-
-// Порты моторов (A=0, B=1, C=2, D=3, E=4, F=5)
-const PORT_LEFT  = 0; // Порт A (Левый мотор)
-const PORT_RIGHT = 1; // Порт B (Правый мотор)
-
-let rxChar = null;
-let visionModel = null;
-
-// Переменные для оптимизации Bluetooth (чтобы не заспамить хаб)
-let lastDriveTime = 0;
-let lastL = 999, lastR = 999;
-let isWritingToHub = false; // Блокировка от переполнения очереди GATT
-
-const video  = document.getElementById('webcam');
-const canvas = document.getElementById('overlay');
-const sysLogEl = document.getElementById('sysLog');
-const pill     = document.getElementById('pill');
-const pillTxt  = document.getElementById('pillTxt');
-
-// ═══════════════════════════════════════════════════
-//  UI ЛОГИКА
-// ═══════════════════════════════════════════════════
-function log(msg) {
-    const lines = sysLogEl.innerText.split('\n');
-    if (lines.length > 8) lines.shift();
-    lines.push(msg);
-    sysLogEl.innerText = lines.join('\n');
-    sysLogEl.scrollTop = sysLogEl.scrollHeight;
-}
-
-function setPill(cls, txt) {
-    pill.className = 'pill ' + cls;
-    pillTxt.innerText = txt;
-}
-
-function setMotorUI(l, r) {
-    ['ml1','ml2','ml3','mr1','mr2','mr3'].forEach(id =>
-        document.getElementById(id).className = 'mb'
-    );
-    if (l < -2) { document.getElementById('ml1').classList.add('al'); document.getElementById('ml2').classList.add('al'); }
-    if (l >  2) { document.getElementById('ml2').classList.add('al'); document.getElementById('ml3').classList.add('al'); }
-    if (r < -2) { document.getElementById('mr1').classList.add('ar'); document.getElementById('mr2').classList.add('ar'); }
-    if (r >  2) { document.getElementById('mr2').classList.add('ar'); document.getElementById('mr3').classList.add('ar'); }
-}
-
-// ═══════════════════════════════════════════════════
-//  BLUETOOTH ПОДКЛЮЧЕНИЕ
-// ═══════════════════════════════════════════════════
-document.getElementById('btnConnect').onclick = async () => {
-    const btn = document.getElementById('btnConnect');
-    btn.disabled = true;
-    btn.textContent = '⏳ Поиск...';
-
-    try {
-        log('BT: ИЩУ SPIKE PRIME...');
-        setPill('', 'ПОИСК...');
-
-        const device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: 'LEGO' }, { namePrefix: 'SPIKE' }],
-            optionalServices: [SERVICE_UUID]
-        });
-
-        log('BT: НАЙДЕН ' + device.name);
-        const server  = await device.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE_UUID);
-
-        rxChar = await service.getCharacteristic(RX_UUID);
-        const txChar = await service.getCharacteristic(TX_UUID);
+        let model, hubChar, recognition;
         
-        // Подписка для поддержания соединения
-        await txChar.startNotifications();
-        
-        // Отправляем базовый пакет (рукопожатие)
-        await rxChar.writeValueWithoutResponse(new Uint8Array([0x03, 0x00, 0x00]));
-        log('BT: РУКОПОЖАТИЕ ОТПРАВЛЕНО');
+        // Переменные состояния
+        let isSpeaking = false;
+        let isBTBusy = false;
+        let lastBTTime = 0;
+        let currentArtifact = ""; // Сюда запишем то, что робот поднял
 
-        setPill('ok', device.name);
-        log('BT: ✓ РОБОТ ПОДКЛЮЧЕН');
+        // Автономный цикл (State Machine)
+        // Статусы: 'SEARCH', 'APPROACH', 'LIFT', 'INSPECT', 'RESPOND', 'LOWER'
+        let robotState = 'SEARCH'; 
 
-        btn.style.display = 'none';
-        document.getElementById('btnTalk').style.display = 'flex';
-        document.getElementById('aiReply').innerText = 'SPIKE Prime на связи! Я буду следить за твоим лицом.';
-
-        device.addEventListener('gattserverdisconnected', () => {
-            rxChar = null;
-            setPill('err', 'ОТКЛЮЧЕН');
-            log('BT: СОЕДИНЕНИЕ ПОТЕРЯНО');
-            btn.style.display = 'flex';
-            btn.disabled = false;
-            btn.textContent = '🔌 Переподключить';
-        });
-
-    } catch (e) {
-        log('ОШИБКА BT: ' + e.message);
-        setPill('err', 'ОШИБКА');
-        btn.disabled = false;
-        btn.textContent = '🔌 Подключить SPIKE';
-    }
-};
-
-// ═══════════════════════════════════════════════════
-//  ПРЯМОЕ УПРАВЛЕНИЕ МОТОРАМИ (Новый драйвер LWP3)
-// ═══════════════════════════════════════════════════
-async function drive(left, right) {
-    // Проверки: есть ли коннект и не занят ли сейчас канал
-    if (!rxChar || isWritingToHub) return;
-
-    const now = Date.now();
-    if (now - lastDriveTime < 100) return; // Обновляем не чаще 10 раз в секунду
-
-    const clamp = v => Math.max(-100, Math.min(100, Math.round(v)));
-    const l = clamp(left);
-    const r = clamp(right);
-
-    // Если значения не изменились — не засоряем эфир
-    if (l === lastL && r === lastR) return;
-    lastL = l; lastR = r;
-    lastDriveTime = now;
-
-    setMotorUI(l, r);
-
-    // Формирование команды LWP3 (Write Direct Mode Data)
-    const getCommand = (port, speed) => new Uint8Array([
-        0x08, 0x00, 0x81, port, 0x11, 0x51, 0x00, speed & 0xFF
-    ]);
-
-    isWritingToHub = true; // Блокируем очередь
-    try {
-        // Отправляем команду на левый мотор
-        await rxChar.writeValueWithoutResponse(getCommand(PORT_LEFT, l));
-        // Отправляем на правый (инвертируем знак, чтобы ехали в одну сторону, если они стоят зеркально)
-        await rxChar.writeValueWithoutResponse(getCommand(PORT_RIGHT, -r)); 
-    } catch (e) {
-        console.warn('ОШИБКА DRIVE:', e.message);
-    }
-    isWritingToHub = false; // Снимаем блокировку
-}
-
-// ═══════════════════════════════════════════════════
-//  ЗРЕНИЕ (BLAZEFACE) + ЛОГИКА СЛЕДОВАНИЯ
-// ═══════════════════════════════════════════════════
-async function initVision() {
-    log('VISION: ГРУЖУ НЕЙРОСЕТЬ ЗРЕНИЯ...');
-    visionModel = await blazeface.load();
-    log('VISION: ГОТОВО. ИЩУ КАМЕРУ...');
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' }
-    });
-    video.srcObject = stream;
-    await new Promise(r => video.onloadedmetadata = r);
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    log('VISION: КАМЕРА АКТИВНА');
-    runTracking();
-}
-
-async function runTracking() {
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const svFace   = document.getElementById('svFace');
-    const svOffset = document.getElementById('svOffset');
-    const svSize   = document.getElementById('svSize');
-    const svMode   = document.getElementById('svMode');
-
-    let preds = [];
-    try { preds = await visionModel.estimateFaces(video, false); } catch(_) {}
-
-    if (preds.length > 0) {
-        const face = preds[0];
-        const [x1,y1] = face.topLeft;
-        const [x2,y2] = face.bottomRight;
-        const fw = x2 - x1;
-        const cx = x1 + fw / 2;
-        const cy = y1 + (y2-y1) / 2;
-        const screenCX = canvas.width / 2;
-        const offset   = cx - screenCX;
-
-        // Рисуем UI поверх видео
-        ctx.strokeStyle = '#00ffe5'; ctx.lineWidth = 2;
-        ctx.strokeRect(x1, y1, fw, y2-y1);
-        ctx.strokeStyle = 'rgba(0,255,229,0.6)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(cx-8,cy); ctx.lineTo(cx+8,cy); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx,cy-8); ctx.lineTo(cx,cy+8); ctx.stroke();
-
-        // ── МАТЕМАТИКА ДВИЖЕНИЯ ────────────────────────────────
-        const TARGET = 130; // Целевая ширина лица в пикселях (определяет дистанцию)
-        const S_DEAD = 25;  // Мертвая зона вперед-назад
-        const T_DEAD = 35;  // Мертвая зона влево-вправо
-
-        const sizeErr = TARGET - fw;
-        let fwd = 0;
-        if (Math.abs(sizeErr) > S_DEAD) {
-            // Если лицо маленькое (далеко) - едем вперед, большое (близко) - назад
-            fwd = Math.min(Math.abs(sizeErr) / 2, 40) * Math.sign(sizeErr);
-        }
-
-        let turn = 0;
-        if (Math.abs(offset) > T_DEAD) {
-            // Если лицо сбоку от центра - поворачиваем
-            turn = Math.min(Math.abs(offset) / 4, 30) * Math.sign(offset);
-        }
-
-        // Передаем скорости на моторы!
-        drive(fwd + turn, fwd - turn);
-
-        // Обновляем панель статистики
-        let mode = 'СТОП';
-        if (Math.abs(fwd) > 3 && Math.abs(turn) > 3) mode = (fwd>0?'↑':'↓') + ' + ' + (turn>0?'→':'←');
-        else if (Math.abs(fwd) > 3) mode = fwd > 0 ? '↑ ВПЕРЁД' : '↓ НАЗАД';
-        else if (Math.abs(turn) > 3) mode = turn > 0 ? '→ ВПРАВО' : '← ВЛЕВО';
-
-        svFace.textContent   = '● ЕСТЬ';   svFace.style.color   = 'var(--accent)';
-        svOffset.textContent = (offset>0?'+':'')+Math.round(offset)+'px';
-        svOffset.style.color = Math.abs(offset)>T_DEAD ? 'var(--accent2)' : 'var(--accent)';
-        svSize.textContent   = Math.round(fw)+'px';
-        svSize.style.color   = Math.abs(sizeErr)>S_DEAD ? 'var(--accent2)' : 'var(--accent)';
-        svMode.textContent   = mode;       svMode.style.color   = mode==='СТОП' ? 'var(--dim)' : 'var(--accent2)';
-
-    } else {
-        // Лицо потеряно — останавливаемся
-        drive(0, 0);
-        svFace.textContent = '○ НЕТ'; svFace.style.color = 'var(--dim)';
-        svOffset.textContent = '—'; svSize.textContent = '—'; svMode.textContent = 'СТОП';
-    }
-
-    requestAnimationFrame(runTracking);
-}
-
-// ═══════════════════════════════════════════════════
-//  ГОЛОС + ИСПРАВЛЕННЫЙ GEMINI API (v1)
-// ═══════════════════════════════════════════════════
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-
-if (SR) {
-    recognition = new SR();
-    recognition.lang = 'ru-RU';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    
-    recognition.onstart  = () => document.getElementById('btnTalk').classList.add('listening');
-    recognition.onend    = () => document.getElementById('btnTalk').classList.remove('listening');
-    recognition.onerror  = e  => log('РЕЧЬ: ОШИБКА — ' + e.error);
-
-    recognition.onresult = async (e) => {
-        const text  = e.results[0][0].transcript;
-        const aiBox = document.getElementById('aiReply');
-        aiBox.innerHTML = `<div class="you">ВЫ:</div>${text}`;
-        
-        log('AI: ЗАПРОС К GEMINI...');
-        aiBox.innerHTML += `<br><i style="color:var(--dim);font-size:12px;">(Думает...)</i>`;
-
-        try {
-            // ИСПРАВЛЕННЫЙ ПУТЬ: v1 вместо v1beta
-            const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
-                {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{
-                                text: `Ты — робот-гид из команды TechTeens. Ты находишься в городе Актау (Казахстан). Отвечай очень кратко и бодро, максимум 2 предложения. Вопрос: ${text}`
-                            }]
-                        }]
-                    })
-                }
-            );
-            
-            const data = await res.json();
-            
-            if (data.error) {
-                throw new Error(data.error.message);
-            }
-
-            if (data.candidates && data.candidates[0].content) {
-                const reply = data.candidates[0].content.parts[0].text;
-                aiBox.innerHTML = `<div class="you">ВЫ:</div>${text}<br><br>${reply}`;
-                log('AI: ОТВЕТ ПОЛУЧЕН');
+        // --- 1. BLUETOOTH СВЯЗЬ (Lego LWP) ---
+        connectBtn.onclick = async () => {
+            try {
+                status.innerText = "Поиск TechTeens Хаба...";
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'LEGO' }],
+                    optionalServices: ['00001623-1212-efde-1523-785feabcd123']
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
+                hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
                 
-                const utt = new SpeechSynthesisUtterance(reply);
-                utt.lang = 'ru-RU';
-                window.speechSynthesis.speak(utt);
-            } else {
-                throw new Error('Пустой ответ от модели');
+                status.innerText = "РОБОТ ПОДКЛЮЧЕН";
+                aiBox.innerText = "Ищу экспонаты типа '" + TARGET_LABEL + "'...";
+                connectBtn.style.display = "none";
+                talkBtn.style.display = "block";
+            } catch (e) { status.innerText = "BT Error: " + e.message; }
+        };
+
+        // Функция отправки команд на базу (Порт A и B)
+        async function sendLegoMove(left, right) {
+            const now = Date.now();
+            if (!hubChar || isBTBusy || now - lastBTTime < 130) return;
+            isBTBusy = true; lastBTTime = now;
+            
+            // Пакеты: [длина, 0x00, 0x81, порт, 0x11, 0x51, 0x01, скорость]
+            const cmdA = new Uint8Array([0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff]);
+            const cmdB = new Uint8Array([0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]);
+            
+            try {
+                await hubChar.writeValueWithoutResponse(cmdA);
+                await new Promise(r => setTimeout(r, 45)); // Обязательная пауза
+                await hubChar.writeValueWithoutResponse(cmdB);
+            } catch (e) {} finally { isBTBusy = false; }
+        }
+
+        // --- НОВОЕ: Функция управления 3-м мотором (Порт C) ---
+        // command=0x11 (Power Direct), mode=0x51 (Power)
+        // Данные: -100 to 100
+        async function sendLiftAction(power, durationMs) {
+            if (!hubChar) return;
+            // Убедимся, что колеса не крутятся
+            sendLegoMove(0,0);
+            await new Promise(r => setTimeout(r, 100));
+
+            status.innerText = power > 0 ? "Подъем экспоната..." : "Спуск экспоната...";
+            const cmdC = new Uint8Array([0x08, 0x00, 0x81, 0x02, 0x11, 0x51, 0x01, power & 0xff]);
+            
+            try {
+                await hubChar.writeValueWithoutResponse(cmdC);
+                await new Promise(r => setTimeout(r, durationMs));
+                await hubChar.writeValueWithoutResponse(new Uint8Array([0x08, 0x00, 0x81, 0x02, 0x11, 0x51, 0x01, 0x00])); // Стоп
+            } catch (e) {}
+        }
+
+        // --- 2. ЗРЕНИЕ И СЛЕЖЕНИЕ ЧЕРЕЗ IP-ПОТОК (Смена модели) ---
+        async function setup() {
+            try {
+                status.innerText = "Загрузка Нейросети (COCO-SSD)...";
+                aiBox.innerText = "ИИ учится распознавать объекты";
+                
+                // Загружаем тяжелую модель (чашка, бутылка, телефон и т.д.)
+                model = await cocoSsd.load({base: 'lite_mobilenet_v2'}); // 'lite' версия быстрее на Samsung
+                
+                // Настраиваем IP стрим
+                img.crossOrigin = "anonymous";
+                img.src = IP_CAM_URL;
+                
+                img.onload = () => {
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    status.innerText = "Системы Активны";
+                    // Если хаб еще не подключен, просто детектим в фоне
+                    detect(); 
+                };
+
+                img.onerror = () => {
+                    status.innerText = "Ошибка сервера камеры " + IP_CAM_URL;
+                    aiBox.innerText = "Запустите трансляцию в приложении на Samsung A53!";
+                };
+
+            } catch (e) { status.innerText = "Критическая ошибка ИИ"; console.error(e);}
+        }
+
+        // --- ГЛАВНЫЙ АВТОНОМНЫЙ ЦИКЛ (Зрение + Движение + Подьем) ---
+        async function detect() {
+            // Если робот говорит — пауза в звании
+            if (isSpeaking) { requestAnimationFrame(detect); return; }
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Детекция объектов на кадре
+            // Высокий порог (0.5), чтобы не было ложных срабатываний
+            const predictions = await model.detect(img, {scoreThreshold: 0.5});
+            
+            // Фильтруем: ищем только нашу цель
+            const target = predictions.find(p => p.class === TARGET_LABEL);
+            const center = canvas.width / 2;
+
+            if (target) {
+                // Отрисовка рамки цели
+                const [x, y, width, height] = target.bbox;
+                ctx.strokeStyle = "#ff0088"; ctx.lineWidth = 4;
+                ctx.strokeRect(x, y, width, height);
+                ctx.fillStyle = "#ff0088"; ctx.fillText(`${target.class} (${Math.round(target.score*100)}%)`, x, y > 10 ? y - 10 : 10);
+
+                // --- ЛОГИКА АВТОНОМНОГО СКАНЕРА ---
+                if (!hubChar) {
+                    status.innerText = "ИИ видит '" + TARGET_LABEL + "'. Подключите Хаб!";
+                } else if (robotState === 'SEARCH') {
+                    // Переходим к сближению
+                    robotState = 'APPROACH';
+                    status.innerText = "Цель обнаружена. Сближение...";
+                } else if (robotState === 'APPROACH') {
+                    // Вычисляем центр объекта
+                    const objX = x + width/2;
+                    const area = width * height; // Площадь — мерило дистанции
+                    const maxArea = canvas.width * canvas.height;
+
+                    // Порог остановки: объект должен занимать > 20% площади кадра
+                    if (area > maxArea * 0.20) {
+                        // Остановка
+                        sendLegoMove(0, 0);
+                        // Запускаем подьем
+                        robotState = 'LIFT';
+                    } else {
+                        // Движение и центрирование
+                        const turnDeadzone = canvas.width * 0.08; // Зона нечувствительности 8% от ширины
+                        if (objX < center - turnDeadzone) sendLegoMove(20, -20); // Поворот влево
+                        else if (objX > center + turnDeadzone) sendLegoMove(-20, 20); // Поворот вправо
+                        else sendLegoMove(25, 25); // Прямо
+                    }
+                }
+            } else if (hubChar) {
+                // Если цели нет
+                if (robotState === 'SEARCH') {
+                    // Сканирование (вращение)
+                    sendLegoMove(20, -20);
+                    status.innerText = "СКАНИРОВАНИЕ КОМНАТЫ...";
+                } else if (robotState === 'APPROACH') {
+                    // Цель потеряна во время движения — остановка и сброс к поиску
+                    sendLegoMove(0, 0);
+                    robotState = 'SEARCH';
+                    status.innerText = "Цель потеряна. Сброс к поиску.";
+                }
             }
 
-        } catch (err) {
-            aiBox.innerText = 'Сбой связи с нейросетью: ' + err.message;
-            log('AI ОШИБКА: ' + err.message);
+            // --- БЛОК ОРАБОТКИ СОСТОЯНИЙ ПОДЪЕМА И ОСМОТРА ---
+            // Эти блоки вызываются не внутри IF(TARGET), чтобы работать без детекции
+            if (hubChar && robotState === 'LIFT') {
+                sendLegoMove(0, 0); // Стоп база
+                // Включаем мотор С вверх, сила 70%, длительность 2 секунды (настрой под свой лифт)
+                await sendLiftAction(70, 2000); 
+                robotState = 'INSPECT';
+            } else if (hubChar && robotState === 'INSPECT') {
+                status.innerText = "Проведение анализа...";
+                // Пауза, чтобы камера стабилизировалась
+                await new Promise(r => setTimeout(r, 500));
+                
+                // Делаем одну высокую точность детекции на поднятом объекте
+                const inspectPreds = await model.detect(img, {scoreThreshold: 0.65});
+                const artifact = inspectPreds[0] ? inspectPreds[0].class : TARGET_LABEL; // Берем лучшее
+                currentArtifact = artifact; // Записываем
+                
+                status.innerText = "Экспонат опознан!";
+                aiBox.innerText = `Это ${artifact}. Генерирую исторический факт...`;
+                
+                // Переходим к ответу (Голос + Gemini)
+                robotState = 'RESPOND';
+                handleAutonomousResponse(artifact);
+            } else if (hubChar && robotState === 'LOWER') {
+                // Включаем мотор С вниз, сила -50%, длительность 2.2 секунды
+                await sendLiftAction(-50, 2200); 
+                robotState = 'SEARCH';
+                currentArtifact = "";
+                aiBox.innerText = "Спуск завершен. Ищу новые экспонаты...";
+            }
+
+            requestAnimationFrame(detect);
         }
-    };
-} else {
-    log('РЕЧЬ: Браузер не поддерживает микрофон.');
-}
 
-document.getElementById('btnTalk').onclick = () => {
-    if (recognition) { recognition.start(); log('РЕЧЬ: СЛУШАЮ...'); }
-};
+        // --- 3. ГОЛОС И GEMINI (Интеграция Artifact Tracker) ---
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.lang = 'ru-RU';
+            recognition.onresult = (e) => {
+                const text = e.results[0][0].transcript;
+                aiBox.innerText = "Вы: " + text;
+                // Спрашиваем Gemini про ПОДНЯТЫЙ артефакт
+                processWithGemini(text, currentArtifact || "неопознанный объект");
+            };
+            recognition.onend = () => { if(!isSpeaking && currentArtifact==="") status.innerText = "Готов слушать"; };
+        }
 
-// Запуск камеры при старте
-initVision().catch(e => log('ОШИБКА КАМЕРЫ: ' + e.message));
-</script>
+        talkBtn.onclick = () => { 
+            if(!isSpeaking && recognition) { 
+                try { recognition.start(); status.innerText = "Слушаю вопрос..."; } catch(e) {} 
+            } 
+        };
+
+        // Функция Gemini для АВТОНОМНОГО режима (когда робот поднял предмет)
+        async function handleAutonomousResponse(artifactName) {
+            if(!GEMINI_API_KEY) { speakAutonomous(`Это ${artifactName}.`); return;}
+            
+            try {
+                // Новый промпт: Короткая, интересная историческая справка
+                const prompt = `Ты - робот-гид в Казахстане. Твой сканер определил этот объект как '${artifactName}'. Твоя задача: Составить КРАТКОЕ (макс 18 слов), интересное и немного смешное историческое описание этого 'артефакта' в контексте кочевников. Например, если это бутылка, скажи, что это древний термос для кумыса.`;
+                
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                const reply = data.candidates[0].content.parts[0].text;
+                aiBox.innerText = `ИИ: ${reply}`;
+                
+                // Сказать ответ и по завершении спустить лифт
+                speakAutonomous(`Результат сканирования: ${reply}`);
+            } catch (e) { speakAutonomous(`Ошибка сканера. Но это точно '${artifactName}'`); }
+        }
+
+        // Функция Gemini для ВОПРОСОВ пользователя (когда юзер жмет микрофон)
+        async function processWithGemini(userText, currentArt) {
+            status.innerText = "Gemini думает...";
+            try {
+                // Если робот уже поднял предмет, Gemini должна знать об этом контексте
+                let context = currentArt !== "неопознанный объект" 
+                    ? `Мы сейчас смотрим на экспонат, который мы опознали как '${currentArt}'. ` 
+                    : "Мы еще ничего не подняли. ";
+                
+                const prompt = `Ты - робот-гид от TechTeens в Казахстане. ${context}Кратко (15 слов) ответь на вопрос: ${userText}`;
+                
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                const reply = data.candidates[0].content.parts[0].text;
+                aiBox.innerText = `TechTeens: ${reply}`;
+                speakConversation(reply);
+            } catch (e) { aiBox.innerText = "Ошибка Gemini"; }
+        }
+
+        // Общая функция речи
+        function speakCommon(text, lang='ru-RU') {
+            isSpeaking = true;
+            if (recognition) recognition.stop();
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = lang;
+            return msg;
+        }
+
+        // Речь для разговорного режима (микрофон)
+        function speakConversation(text) {
+            const msg = speakCommon(text);
+            msg.onend = () => { isSpeaking = false; status.innerText = "Стрим активен"; };
+            window.speechSynthesis.speak(msg);
+        }
+
+        // Речь для автономного режима (после нее лифт едет вниз)
+        function speakAutonomous(text) {
+            const msg = speakCommon(text);
+            msg.onend = () => { 
+                isSpeaking = false; 
+                if(hubChar) robotState = 'LOWER'; // Спускаем лифт
+            };
+            window.speechSynthesis.speak(msg);
+        }
+
+        setup();
+    </script>
 </body>
 </html>
