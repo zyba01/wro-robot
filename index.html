@@ -48,19 +48,35 @@
         let lastCommandTime = 0;
 
         // --- 1. СВЯЗЬ С LEGO (Bluetooth) ---
+       // --- 1. СВЯЗЬ С ЛЮБЫМ BLUETOOTH УСТРОЙСТВОМ ---
         connectBtn.onclick = async () => {
             try {
+                status.innerText = "Поиск устройств...";
+                
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'со' }],
+                    // Разрешаем поиск всех устройств поблизости
+                    acceptAllDevices: true,
+                    // Если вы планируете работать с LEGO Hub, его сервис нужно 
+                    // перечислить здесь, иначе браузер не даст к нему доступ после подключения
                     optionalServices: ['00001623-1212-efde-1523-785feabcd123']
                 });
+
+                status.innerText = `Подключение к ${device.name || 'устройству'}...`;
+                
                 const server = await device.gatt.connect();
+                
+                // Пытаемся получить сервис (работает, если это LEGO или устройство с таким же UUID)
                 const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
                 hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
-                status.innerText = "LEGO подключен!";
+                
+                status.innerText = "Подключено: " + (device.name || "Неизвестно");
                 connectBtn.style.display = "none";
                 talkBtn.style.display = "block";
-            } catch (e) { status.innerText = "Ошибка Bluetooth: " + e.message; }
+                
+            } catch (e) { 
+                status.innerText = "Ошибка: " + e.message; 
+                console.error(e);
+            }
         };
 
         async function sendLegoMove(left, right) {
