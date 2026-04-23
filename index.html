@@ -178,7 +178,7 @@
 // ═══════════════════════════════════════════════════
 //  НАСТРОЙКИ
 // ═══════════════════════════════════════════════════
-const GEMINI_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4";
+const GEMINI_KEY = "AIzaSyCrbE0CoWhXZR2r1ovdN9CH3mSZjn8Etpc";
 
 // Официальные UUID LEGO SPIKE Prime
 // Источник: https://lego.github.io/spike-prime-docs/connect.html
@@ -354,7 +354,7 @@ async function drive(left, right) {
     if (!rxChar) return;
 
     const now = Date.now();
-    if (now - lastDriveTime < 120) return;
+    if (now - lastDriveTime < 100) return; // Уменьшил задержку до 100мс для плавности
 
     const clamp = v => Math.max(-100, Math.min(100, Math.round(v)));
     const l = clamp(left);
@@ -366,16 +366,18 @@ async function drive(left, right) {
 
     setMotorUI(l, r);
 
-    // Python API SPIKE Prime: motor.run(port, velocity)
-    // velocity: -1000 до +1000, умножаем % на 10
-    const lv = l * 10;
-    const rv = r * 10;
-    const code = `import motor\nmotor.run(${PORT_LEFT},${lv})\nmotor.run(${PORT_RIGHT},${rv})\n`;
+    // Прямая команда управления скоростью (LWP3)
+    // 0x08 - длина, 0x00 - хаб, 0x81 - Port Output, PORT, 0x11 - WriteDirect, 0x51 - Write, Speed
+    const getCommand = (port, speed) => new Uint8Array([
+        0x08, 0x00, 0x81, port, 0x11, 0x51, 0x00, speed & 0xFF
+    ]);
 
     try {
-        await rxChar.writeValueWithoutResponse(makeTunnelMessage(code));
+        // Отправляем команду на левый и правый порты напрямую
+        await rxChar.writeValueWithoutResponse(getCommand(PORT_LEFT, l));
+        await rxChar.writeValueWithoutResponse(getCommand(PORT_RIGHT, -r)); // Минус для правого, если робот крутится на месте
     } catch (e) {
-        console.warn('drive error:', e.message);
+        console.warn('Drive direct error:', e.message);
     }
 }
 
@@ -527,15 +529,40 @@ if (SR) {
                     })
                 }
             );
-            const data  = await res.json();
-            const reply = data.candidates[0].content.parts[0].text;
+            const data = await res.json();
+            console.log('Gemini response:', JSON.stringify(data));
+
+            // Ошибка от API (неверный ключ, лимит и т.д.)
+            if (!res.ok || data.error) {
+                const errMsg = data.error?.message || 'HTTP ' + res.status;
+                log('AI: API ОШИБКА — ' + errMsg);
+                aiBox.innerText = 'Ошибка API: ' + errMsg;
+                return;
+            }
+
+            // Ответ заблокирован фильтром
+            if (!data.candidates || data.candidates.length === 0) {
+                const reason = data.promptFeedback?.blockReason || 'нет ответа';
+                log('AI: ЗАБЛОКИРОВАНО — ' + reason);
+                aiBox.innerText = 'Нет ответа: ' + reason;
+                return;
+            }
+
+            const reply = data.candidates[0]?.content?.parts?.[0]?.text;
+            if (!reply) {
+                log('AI: ПУСТОЙ ОТВЕТ');
+                aiBox.innerText = 'AI вернул пустой ответ.';
+                return;
+            }
+
             aiBox.innerText = reply;
             log('AI: ОТВЕТ ПОЛУЧЕН');
             const utt = new SpeechSynthesisUtterance(reply);
             utt.lang = 'ru-RU';
             window.speechSynthesis.speak(utt);
+
         } catch (err) {
-            aiBox.innerText = 'Ошибка AI. Проверь интернет.';
+            aiBox.innerText = 'Ошибка сети. Проверь интернет.';
             log('AI: ОШИБКА — ' + err.message);
         }
     };
