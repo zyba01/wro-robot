@@ -51,7 +51,7 @@
         connectBtn.onclick = async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'LEGO' }],
+                    filters: [{ namePrefix: 'со' }],
                     optionalServices: ['00001623-1212-efde-1523-785feabcd123']
                 });
                 const server = await device.gatt.connect();
