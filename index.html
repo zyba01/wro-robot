@@ -160,7 +160,7 @@
 
     <div class="panel">
         <div class="plabel">Системный лог</div>
-        <div id="sysLog">INIT: ЗАГРУЗКА МОДЕЛИ ЗРЕНИЯ...</div>
+        <div id="sysLog">INIT: ОЖИДАНИЕ...</div>
     </div>
 
     <div class="panel">
@@ -176,36 +176,36 @@
 
 <script>
 // ═══════════════════════════════════════════════════
-//  НАСТРОЙКИ
+//  НАСТРОЙКИ (ВСТАВЬ СЮДА СВОЙ КЛЮЧ GEMINI!)
 // ═══════════════════════════════════════════════════
 const GEMINI_KEY = "AIzaSyCrbE0CoWhXZR2r1ovdN9CH3mSZjn8Etpc";
 
-// Официальные UUID LEGO SPIKE Prime
-// Источник: https://lego.github.io/spike-prime-docs/connect.html
+// UUID для связи со SPIKE Prime
 const SERVICE_UUID = '0000fd02-0000-1000-8000-00805f9b34fb';
-const RX_UUID      = '0000fd02-0001-1000-8000-00805f9b34fb'; // пишем → хаб получает
-const TX_UUID      = '0000fd02-0002-1000-8000-00805f9b34fb'; // читаем ← хаб отправляет
+const RX_UUID      = '0000fd02-0001-1000-8000-00805f9b34fb'; 
+const TX_UUID      = '0000fd02-0002-1000-8000-00805f9b34fb'; 
 
-// Порты моторов (измени если моторы в других портах)
-// A=0, B=1, C=2, D=3, E=4, F=5
-const PORT_LEFT  = 0; // порт A
-const PORT_RIGHT = 1; // порт B
+// Порты моторов (A=0, B=1, C=2, D=3, E=4, F=5)
+const PORT_LEFT  = 0; // Порт A (Левый мотор)
+const PORT_RIGHT = 1; // Порт B (Правый мотор)
 
 let rxChar = null;
 let visionModel = null;
+
+// Переменные для оптимизации Bluetooth (чтобы не заспамить хаб)
 let lastDriveTime = 0;
 let lastL = 999, lastR = 999;
+let isWritingToHub = false; // Блокировка от переполнения очереди GATT
 
 const video  = document.getElementById('webcam');
 const canvas = document.getElementById('overlay');
-
-// ═══════════════════════════════════════════════════
-//  UI
-// ═══════════════════════════════════════════════════
 const sysLogEl = document.getElementById('sysLog');
 const pill     = document.getElementById('pill');
 const pillTxt  = document.getElementById('pillTxt');
 
+// ═══════════════════════════════════════════════════
+//  UI ЛОГИКА
+// ═══════════════════════════════════════════════════
 function log(msg) {
     const lines = sysLogEl.innerText.split('\n');
     if (lines.length > 8) lines.shift();
@@ -230,63 +230,7 @@ function setMotorUI(l, r) {
 }
 
 // ═══════════════════════════════════════════════════
-//  COBS КОДИРОВАНИЕ (официальный протокол SPIKE Prime)
-//  Источник: https://lego.github.io/spike-prime-docs/encoding.html
-// ═══════════════════════════════════════════════════
-const XOR_VAL      = 0x03;
-const END_DELIM    = 0x02;
-const NO_DELIM     = 0xFF;
-const MAX_BLOCK    = 84;
-const COBS_OFFSET  = 3;
-
-function cobsEncode(data) {
-    const buf = [];
-    let codeIdx = 0, block = 0;
-
-    function beginBlock() {
-        codeIdx = buf.length;
-        buf.push(NO_DELIM);
-        block = 1;
-    }
-
-    beginBlock();
-    for (const b of data) {
-        if (b > 0x02) { buf.push(b); block++; }
-        if (b <= 0x02 || block > MAX_BLOCK) {
-            if (b <= 0x02) buf[codeIdx] = (b * MAX_BLOCK) + block + COBS_OFFSET;
-            beginBlock();
-        }
-    }
-    buf[codeIdx] = block + COBS_OFFSET;
-    return buf;
-}
-
-function packMessage(payload) {
-    const encoded = cobsEncode(payload);
-    const result  = encoded.map(b => b ^ XOR_VAL);
-    result.push(END_DELIM);
-    return new Uint8Array(result);
-}
-
-// ═══════════════════════════════════════════════════
-//  SPIKE PRIME СООБЩЕНИЯ
-// ═══════════════════════════════════════════════════
-
-// Обязательный хендшейк при подключении
-function makeInfoRequest() {
-    return packMessage([0x00]);
-}
-
-// TunnelMessage (0x32) — туннелирует Python код на хаб
-function makeTunnelMessage(code) {
-    const bytes = new TextEncoder().encode(code);
-    const size  = bytes.length;
-    const payload = [0x32, size & 0xFF, (size >> 8) & 0xFF, ...bytes];
-    return packMessage(payload);
-}
-
-// ═══════════════════════════════════════════════════
-//  BLUETOOTH
+//  BLUETOOTH ПОДКЛЮЧЕНИЕ
 // ═══════════════════════════════════════════════════
 document.getElementById('btnConnect').onclick = async () => {
     const btn = document.getElementById('btnConnect');
@@ -294,100 +238,97 @@ document.getElementById('btnConnect').onclick = async () => {
     btn.textContent = '⏳ Поиск...';
 
     try {
-        log('BT: ПОИСК SPIKE PRIME...');
+        log('BT: ИЩУ SPIKE PRIME...');
         setPill('', 'ПОИСК...');
 
         const device = await navigator.bluetooth.requestDevice({
-            filters: [
-                { namePrefix: 'LEGO'  },
-                { namePrefix: 'SPIKE' },
-                { namePrefix: 'Hub'   }
-            ],
+            filters: [{ namePrefix: 'LEGO' }, { namePrefix: 'SPIKE' }],
             optionalServices: [SERVICE_UUID]
         });
 
-        log('BT: НАЙДЕН: ' + device.name);
+        log('BT: НАЙДЕН ' + device.name);
         const server  = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
 
         rxChar = await service.getCharacteristic(RX_UUID);
-
-        // Подписка на уведомления от хаба
         const txChar = await service.getCharacteristic(TX_UUID);
+        
+        // Подписка для поддержания соединения
         await txChar.startNotifications();
-        txChar.addEventListener('characteristicvaluechanged', e => {
-            const d = new Uint8Array(e.target.value.buffer);
-            if (d.length > 0) log('HUB: ответ получен (тип=' + d[0] + ')');
-        });
-
-        // Обязательный InfoRequest
-        await rxChar.writeValueWithoutResponse(makeInfoRequest());
+        
+        // Отправляем базовый пакет (рукопожатие)
+        await rxChar.writeValueWithoutResponse(new Uint8Array([0x03, 0x00, 0x00]));
         log('BT: РУКОПОЖАТИЕ ОТПРАВЛЕНО');
 
         setPill('ok', device.name);
-        log('BT: ✓ ГОТОВ К РАБОТЕ');
+        log('BT: ✓ РОБОТ ПОДКЛЮЧЕН');
 
         btn.style.display = 'none';
         document.getElementById('btnTalk').style.display = 'flex';
-        document.getElementById('aiReply').innerText =
-            'SPIKE Prime подключён! Встань перед роботом — он последует за тобой.';
+        document.getElementById('aiReply').innerText = 'SPIKE Prime на связи! Я буду следить за твоим лицом.';
 
         device.addEventListener('gattserverdisconnected', () => {
             rxChar = null;
-            setPill('err', 'ОТКЛЮЧЁН');
+            setPill('err', 'ОТКЛЮЧЕН');
             log('BT: СОЕДИНЕНИЕ ПОТЕРЯНО');
+            btn.style.display = 'flex';
+            btn.disabled = false;
+            btn.textContent = '🔌 Переподключить';
         });
 
     } catch (e) {
-        log('ОШИБКА: ' + e.message);
+        log('ОШИБКА BT: ' + e.message);
         setPill('err', 'ОШИБКА');
         btn.disabled = false;
         btn.textContent = '🔌 Подключить SPIKE';
-        console.error(e);
     }
 };
 
 // ═══════════════════════════════════════════════════
-//  УПРАВЛЕНИЕ МОТОРАМИ
+//  ПРЯМОЕ УПРАВЛЕНИЕ МОТОРАМИ (Новый драйвер LWP3)
 // ═══════════════════════════════════════════════════
 async function drive(left, right) {
-    if (!rxChar) return;
+    // Проверки: есть ли коннект и не занят ли сейчас канал
+    if (!rxChar || isWritingToHub) return;
 
     const now = Date.now();
-    if (now - lastDriveTime < 100) return; // Уменьшил задержку до 100мс для плавности
+    if (now - lastDriveTime < 100) return; // Обновляем не чаще 10 раз в секунду
 
     const clamp = v => Math.max(-100, Math.min(100, Math.round(v)));
     const l = clamp(left);
     const r = clamp(right);
 
+    // Если значения не изменились — не засоряем эфир
     if (l === lastL && r === lastR) return;
     lastL = l; lastR = r;
     lastDriveTime = now;
 
     setMotorUI(l, r);
 
-    // Прямая команда управления скоростью (LWP3)
-    // 0x08 - длина, 0x00 - хаб, 0x81 - Port Output, PORT, 0x11 - WriteDirect, 0x51 - Write, Speed
+    // Формирование команды LWP3 (Write Direct Mode Data)
     const getCommand = (port, speed) => new Uint8Array([
         0x08, 0x00, 0x81, port, 0x11, 0x51, 0x00, speed & 0xFF
     ]);
 
+    isWritingToHub = true; // Блокируем очередь
     try {
-        // Отправляем команду на левый и правый порты напрямую
+        // Отправляем команду на левый мотор
         await rxChar.writeValueWithoutResponse(getCommand(PORT_LEFT, l));
-        await rxChar.writeValueWithoutResponse(getCommand(PORT_RIGHT, -r)); // Минус для правого, если робот крутится на месте
+        // Отправляем на правый (инвертируем знак, чтобы ехали в одну сторону, если они стоят зеркально)
+        await rxChar.writeValueWithoutResponse(getCommand(PORT_RIGHT, -r)); 
     } catch (e) {
-        console.warn('Drive direct error:', e.message);
+        console.warn('ОШИБКА DRIVE:', e.message);
     }
+    isWritingToHub = false; // Снимаем блокировку
 }
 
 // ═══════════════════════════════════════════════════
-//  ЗРЕНИЕ — BLAZEFACE
+//  ЗРЕНИЕ (BLAZEFACE) + ЛОГИКА СЛЕДОВАНИЯ
 // ═══════════════════════════════════════════════════
 async function initVision() {
-    log('VISION: ЗАГРУЗКА BLAZEFACE...');
+    log('VISION: ГРУЖУ НЕЙРОСЕТЬ ЗРЕНИЯ...');
     visionModel = await blazeface.load();
-    log('VISION: МОДЕЛЬ ГОТОВА');
+    log('VISION: ГОТОВО. ИЩУ КАМЕРУ...');
 
     const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: 'user' }
@@ -396,7 +337,7 @@ async function initVision() {
     await new Promise(r => video.onloadedmetadata = r);
     canvas.width  = video.videoWidth;
     canvas.height = video.videoHeight;
-    log('VISION: КАМЕРА АКТИВНА · ЖДУ РОБОТА');
+    log('VISION: КАМЕРА АКТИВНА');
     runTracking();
 }
 
@@ -422,81 +363,59 @@ async function runTracking() {
         const screenCX = canvas.width / 2;
         const offset   = cx - screenCX;
 
-        // Рамка вокруг лица
-        ctx.strokeStyle = '#00ffe5';
-        ctx.lineWidth   = 2;
-        ctx.shadowColor = '#00ffe5';
-        ctx.shadowBlur  = 10;
+        // Рисуем UI поверх видео
+        ctx.strokeStyle = '#00ffe5'; ctx.lineWidth = 2;
         ctx.strokeRect(x1, y1, fw, y2-y1);
-        ctx.shadowBlur  = 0;
-
-        // Крест
-        ctx.strokeStyle = 'rgba(0,255,229,0.6)';
-        ctx.lineWidth   = 1;
+        ctx.strokeStyle = 'rgba(0,255,229,0.6)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(cx-8,cy); ctx.lineTo(cx+8,cy); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx,cy-8); ctx.lineTo(cx,cy+8); ctx.stroke();
 
-        // Линия к центру
-        ctx.strokeStyle = Math.abs(offset) > 35 ? 'rgba(255,107,0,0.4)' : 'rgba(0,255,229,0.2)';
-        ctx.setLineDash([4,4]); ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(screenCX,cy); ctx.stroke();
-        ctx.setLineDash([]);
+        // ── МАТЕМАТИКА ДВИЖЕНИЯ ────────────────────────────────
+        const TARGET = 130; // Целевая ширина лица в пикселях (определяет дистанцию)
+        const S_DEAD = 25;  // Мертвая зона вперед-назад
+        const T_DEAD = 35;  // Мертвая зона влево-вправо
 
-        // ── ЛОГИКА СЛЕДОВАНИЯ ──────────────────────────────────
-        // Размер лица → дистанция. Целевой размер = 130px
-        const TARGET = 130;
-        const S_DEAD = 25;  // мёртвая зона размера (±px)
-        const T_DEAD = 35;  // мёртвая зона поворота (±px)
-
-        // Вперёд/назад
         const sizeErr = TARGET - fw;
         let fwd = 0;
         if (Math.abs(sizeErr) > S_DEAD) {
-            fwd = Math.min(Math.abs(sizeErr) / 3, 45) * Math.sign(sizeErr);
+            // Если лицо маленькое (далеко) - едем вперед, большое (близко) - назад
+            fwd = Math.min(Math.abs(sizeErr) / 2, 40) * Math.sign(sizeErr);
         }
 
-        // Поворот
         let turn = 0;
         if (Math.abs(offset) > T_DEAD) {
-            turn = Math.min(Math.abs(offset) / 5, 35) * Math.sign(offset);
+            // Если лицо сбоку от центра - поворачиваем
+            turn = Math.min(Math.abs(offset) / 4, 30) * Math.sign(offset);
         }
 
-        // Левый и правый мотор
-        // offset > 0 → лицо правее → turn > 0 → левый быстрее, правый медленнее
+        // Передаем скорости на моторы!
         drive(fwd + turn, fwd - turn);
 
-        // Текст режима
+        // Обновляем панель статистики
         let mode = 'СТОП';
-        if (Math.abs(fwd) > 3 && Math.abs(turn) > 3)
-            mode = (fwd>0?'↑':'↓') + ' + ' + (turn>0?'→':'←');
-        else if (Math.abs(fwd) > 3)
-            mode = fwd > 0 ? '↑ ВПЕРЁД' : '↓ НАЗАД';
-        else if (Math.abs(turn) > 3)
-            mode = turn > 0 ? '→ ВПРАВО' : '← ВЛЕВО';
+        if (Math.abs(fwd) > 3 && Math.abs(turn) > 3) mode = (fwd>0?'↑':'↓') + ' + ' + (turn>0?'→':'←');
+        else if (Math.abs(fwd) > 3) mode = fwd > 0 ? '↑ ВПЕРЁД' : '↓ НАЗАД';
+        else if (Math.abs(turn) > 3) mode = turn > 0 ? '→ ВПРАВО' : '← ВЛЕВО';
 
-        svFace.textContent   = '● ЕСТЬ';
-        svFace.style.color   = 'var(--accent)';
+        svFace.textContent   = '● ЕСТЬ';   svFace.style.color   = 'var(--accent)';
         svOffset.textContent = (offset>0?'+':'')+Math.round(offset)+'px';
         svOffset.style.color = Math.abs(offset)>T_DEAD ? 'var(--accent2)' : 'var(--accent)';
         svSize.textContent   = Math.round(fw)+'px';
         svSize.style.color   = Math.abs(sizeErr)>S_DEAD ? 'var(--accent2)' : 'var(--accent)';
-        svMode.textContent   = mode;
-        svMode.style.color   = mode==='СТОП' ? 'var(--dim)' : 'var(--accent2)';
+        svMode.textContent   = mode;       svMode.style.color   = mode==='СТОП' ? 'var(--dim)' : 'var(--accent2)';
 
     } else {
+        // Лицо потеряно — останавливаемся
         drive(0, 0);
-        setMotorUI(0, 0);
-        svFace.textContent   = '○ НЕТ';   svFace.style.color   = 'var(--dim)';
-        svOffset.textContent = '—';        svOffset.style.color = 'var(--dim)';
-        svSize.textContent   = '—';        svSize.style.color   = 'var(--dim)';
-        svMode.textContent   = 'СТОП';     svMode.style.color   = 'var(--dim)';
+        svFace.textContent = '○ НЕТ'; svFace.style.color = 'var(--dim)';
+        svOffset.textContent = '—'; svSize.textContent = '—'; svMode.textContent = 'СТОП';
     }
 
     requestAnimationFrame(runTracking);
 }
 
 // ═══════════════════════════════════════════════════
-//  ГОЛОС + GEMINI
+//  ГОЛОС + ИСПРАВЛЕННЫЙ GEMINI API (v1)
 // ═══════════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
@@ -506,6 +425,7 @@ if (SR) {
     recognition.lang = 'ru-RU';
     recognition.continuous = false;
     recognition.interimResults = false;
+    
     recognition.onstart  = () => document.getElementById('btnTalk').classList.add('listening');
     recognition.onend    = () => document.getElementById('btnTalk').classList.remove('listening');
     recognition.onerror  = e  => log('РЕЧЬ: ОШИБКА — ' + e.error);
@@ -514,70 +434,60 @@ if (SR) {
         const text  = e.results[0][0].transcript;
         const aiBox = document.getElementById('aiReply');
         aiBox.innerHTML = `<div class="you">ВЫ:</div>${text}`;
+        
         log('AI: ЗАПРОС К GEMINI...');
+        aiBox.innerHTML += `<br><i style="color:var(--dim);font-size:12px;">(Думает...)</i>`;
 
         try {
-            const res  = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+            // ИСПРАВЛЕННЫЙ ПУТЬ: v1 вместо v1beta
+            const res = await fetch(
+                `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
                 {
                     method: 'POST',
-                    headers: {'Content-Type':'application/json'},
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
-                        contents:[{parts:[{text:
-                            `Ты — робот-гид по городу Актау (Казахстан). Отвечай кратко и интересно, не более 25 слов. Вопрос: ${text}`
-                        }]}]
+                        contents: [{
+                            parts: [{
+                                text: `Ты — робот-гид из команды TechTeens. Ты находишься в городе Актау (Казахстан). Отвечай очень кратко и бодро, максимум 2 предложения. Вопрос: ${text}`
+                            }]
+                        }]
                     })
                 }
             );
+            
             const data = await res.json();
-            console.log('Gemini response:', JSON.stringify(data));
-
-            // Ошибка от API (неверный ключ, лимит и т.д.)
-            if (!res.ok || data.error) {
-                const errMsg = data.error?.message || 'HTTP ' + res.status;
-                log('AI: API ОШИБКА — ' + errMsg);
-                aiBox.innerText = 'Ошибка API: ' + errMsg;
-                return;
+            
+            if (data.error) {
+                throw new Error(data.error.message);
             }
 
-            // Ответ заблокирован фильтром
-            if (!data.candidates || data.candidates.length === 0) {
-                const reason = data.promptFeedback?.blockReason || 'нет ответа';
-                log('AI: ЗАБЛОКИРОВАНО — ' + reason);
-                aiBox.innerText = 'Нет ответа: ' + reason;
-                return;
+            if (data.candidates && data.candidates[0].content) {
+                const reply = data.candidates[0].content.parts[0].text;
+                aiBox.innerHTML = `<div class="you">ВЫ:</div>${text}<br><br>${reply}`;
+                log('AI: ОТВЕТ ПОЛУЧЕН');
+                
+                const utt = new SpeechSynthesisUtterance(reply);
+                utt.lang = 'ru-RU';
+                window.speechSynthesis.speak(utt);
+            } else {
+                throw new Error('Пустой ответ от модели');
             }
-
-            const reply = data.candidates[0]?.content?.parts?.[0]?.text;
-            if (!reply) {
-                log('AI: ПУСТОЙ ОТВЕТ');
-                aiBox.innerText = 'AI вернул пустой ответ.';
-                return;
-            }
-
-            aiBox.innerText = reply;
-            log('AI: ОТВЕТ ПОЛУЧЕН');
-            const utt = new SpeechSynthesisUtterance(reply);
-            utt.lang = 'ru-RU';
-            window.speechSynthesis.speak(utt);
 
         } catch (err) {
-            aiBox.innerText = 'Ошибка сети. Проверь интернет.';
-            log('AI: ОШИБКА — ' + err.message);
+            aiBox.innerText = 'Сбой связи с нейросетью: ' + err.message;
+            log('AI ОШИБКА: ' + err.message);
         }
     };
 } else {
-    log('РЕЧЬ: API не поддерживается браузером');
+    log('РЕЧЬ: Браузер не поддерживает микрофон.');
 }
 
 document.getElementById('btnTalk').onclick = () => {
     if (recognition) { recognition.start(); log('РЕЧЬ: СЛУШАЮ...'); }
 };
 
-// ═══════════════════════════════════════════════════
-//  СТАРТ
-// ═══════════════════════════════════════════════════
-initVision().catch(e => log('VISION ERROR: ' + e.message));
+// Запуск камеры при старте
+initVision().catch(e => log('ОШИБКА КАМЕРЫ: ' + e.message));
 </script>
 </body>
 </html>
