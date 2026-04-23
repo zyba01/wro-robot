@@ -3,200 +3,554 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aktau AI Guide Bot - Professional</title>
+    <title>AI Guide Aktau — SPIKE Prime</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;600;800&display=swap" rel="stylesheet">
     <style>
-        :root { --accent: #00ffcc; --bg: #0d0d0d; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #fff; margin: 0; display: flex; flex-direction: column; align-items: center; }
-        
-        #header { margin: 20px; text-align: center; }
-        h1 { color: var(--accent); margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; }
-        
-        #container { position: relative; width: 500px; height: 375px; border-radius: 20px; overflow: hidden; border: 3px solid #333; box-shadow: 0 0 30px rgba(0,255,204,0.2); }
-        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+        :root {
+            --accent: #00ffe5;
+            --accent2: #ff6b00;
+            --bg: #080c10;
+            --panel: #0e1318;
+            --border: #1a2530;
+            --text: #c8dde8;
+            --dim: #4a6070;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        .controls { width: 500px; margin-top: 20px; display: flex; flex-direction: column; gap: 15px; }
-        .status-box { background: #1a1a1a; padding: 10px; border-radius: 10px; font-family: monospace; font-size: 13px; color: var(--accent); border: 1px solid #333; }
-        
-        .chat-bubble { background: #222; padding: 15px; border-radius: 15px; border-left: 4px solid var(--accent); min-height: 40px; font-style: italic; }
+        body {
+            font-family: 'Exo 2', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-image:
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(0,255,229,0.05) 0%, transparent 70%),
+                repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.015) 39px, rgba(255,255,255,0.015) 40px),
+                repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.015) 39px, rgba(255,255,255,0.015) 40px);
+        }
 
-        button { padding: 15px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 16px; }
-        #btnConnect { background: var(--accent); color: #000; }
-        #btnTalk { background: #0077ff; color: #fff; display: none; }
-        button:hover { opacity: 0.8; transform: translateY(-2px); }
-        button:active { transform: translateY(0); }
+        #header {
+            width: 100%; max-width: 540px;
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        .logo-block h1 {
+            font-weight: 800; font-size: 20px;
+            letter-spacing: 3px; text-transform: uppercase;
+            color: var(--accent);
+            text-shadow: 0 0 20px rgba(0,255,229,0.4);
+        }
+        .logo-block .sub {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px; color: var(--dim); letter-spacing: 2px; margin-top: 2px;
+        }
+
+        .pill {
+            font-family: 'Share Tech Mono', monospace; font-size: 11px;
+            padding: 5px 12px; border-radius: 20px;
+            border: 1px solid var(--border); background: var(--panel);
+            color: var(--dim); display: flex; align-items: center; gap: 6px;
+            transition: all 0.3s;
+        }
+        .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+        .pill.ok { color: var(--accent); border-color: rgba(0,255,229,0.3); }
+        .pill.ok .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: blink 2s infinite; }
+        .pill.err { color: #ff4444; border-color: rgba(255,68,68,0.3); }
+        .pill.err .dot { background: #ff4444; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        #cam-wrap {
+            position: relative; width: 100%; max-width: 540px;
+            aspect-ratio: 4/3; border-radius: 16px; overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 0 40px rgba(0,255,229,0.07), inset 0 0 0 1px rgba(255,255,255,0.03);
+        }
+        video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block; }
+        #overlay { position:absolute; top:0; left:0; width:100%; height:100%; transform:scaleX(-1); }
+
+        .corner { position:absolute; width:18px; height:18px; border-color:var(--accent); border-style:solid; opacity:.5; z-index:2; }
+        .corner.tl{top:10px;left:10px;border-width:2px 0 0 2px}
+        .corner.tr{top:10px;right:10px;border-width:2px 2px 0 0}
+        .corner.bl{bottom:10px;left:10px;border-width:0 0 2px 2px}
+        .corner.br{bottom:10px;right:10px;border-width:0 2px 2px 0}
+
+        .scanline {
+            position:absolute; top:0; left:0; right:0; height:2px;
+            background:linear-gradient(90deg,transparent,var(--accent),transparent);
+            opacity:.12; animation:scan 3s linear infinite; z-index:3;
+        }
+        @keyframes scan{0%{top:0}100%{top:100%}}
+
+        #motor-bar {
+            position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+            display:flex; gap:5px; z-index:4;
+        }
+        .mb { width:7px; height:22px; border-radius:4px; background:rgba(255,255,255,0.07); transition:background .1s; }
+        .mb.al { background:var(--accent); box-shadow:0 0 5px var(--accent); }
+        .mb.ar { background:var(--accent2); box-shadow:0 0 5px var(--accent2); }
+
+        #panels { width:100%; max-width:540px; margin-top:12px; display:flex; flex-direction:column; gap:10px; }
+
+        .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:13px 15px; }
+        .plabel { font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:2px; color:var(--dim); text-transform:uppercase; margin-bottom:7px; }
+
+        #sysLog { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--accent); line-height:1.7; white-space:pre-wrap; max-height:80px; overflow-y:auto; }
+
+        #aiReply { font-size:15px; font-weight:300; line-height:1.6; color:#d0e8f0; min-height:44px; }
+        #aiReply .you { color:var(--dim); font-size:11px; font-family:'Share Tech Mono',monospace; margin-bottom:4px; }
+
+        .stats { display:flex; justify-content:space-between; }
+        .stat { text-align:center; }
+        .stat .sv { font-family:'Share Tech Mono',monospace; font-size:13px; color:var(--dim); transition:color .2s; }
+        .stat .sl { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--dim); letter-spacing:1px; margin-top:3px; }
+
+        #btn-row { display:flex; gap:10px; }
+        button {
+            flex:1; padding:14px; border-radius:10px; border:1px solid transparent;
+            font-family:'Exo 2',sans-serif; font-weight:600; font-size:14px;
+            cursor:pointer; transition:all .2s; letter-spacing:.5px;
+            display:flex; align-items:center; justify-content:center; gap:8px;
+        }
+        #btnConnect { background:var(--accent); color:#000; }
+        #btnConnect:hover { box-shadow:0 0 20px rgba(0,255,229,0.4); transform:translateY(-1px); }
+        #btnConnect:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+
+        #btnTalk { background:transparent; color:var(--accent); border-color:rgba(0,255,229,0.3); display:none; }
+        #btnTalk:hover { background:rgba(0,255,229,0.08); transform:translateY(-1px); }
+        #btnTalk.listening { background:rgba(0,255,229,0.1); border-color:var(--accent); animation:glow 1s infinite alternate; }
+        @keyframes glow { from{box-shadow:0 0 5px rgba(0,255,229,0.2)} to{box-shadow:0 0 18px rgba(0,255,229,0.5)} }
     </style>
 </head>
 <body>
 
-    <div id="header">
-        <h1>AI Guide Aktau</h1>
-        <div id="status">Инициализация систем...</div>
+<div id="header">
+    <div class="logo-block">
+        <h1>AI Guide · Aktau</h1>
+        <div class="sub">LEGO SPIKE PRIME · FACE TRACKING</div>
+    </div>
+    <div class="pill" id="pill"><span class="dot"></span><span id="pillTxt">OFFLINE</span></div>
+</div>
+
+<div id="cam-wrap">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="scanline"></div>
+    <div id="motor-bar">
+        <div class="mb" id="ml1"></div><div class="mb" id="ml2"></div><div class="mb" id="ml3"></div>
+        <div class="mb" id="mr1"></div><div class="mb" id="mr2"></div><div class="mb" id="mr3"></div>
+    </div>
+</div>
+
+<div id="panels">
+    <div class="panel">
+        <div class="stats">
+            <div class="stat"><div class="sv" id="svFace">—</div><div class="sl">ЛИЦО</div></div>
+            <div class="stat"><div class="sv" id="svOffset">—</div><div class="sl">СМЕЩЕНИЕ</div></div>
+            <div class="stat"><div class="sv" id="svSize">—</div><div class="sl">РАЗМЕР</div></div>
+            <div class="stat"><div class="sv" id="svMode">СТОП</div><div class="sl">РЕЖИМ</div></div>
+        </div>
     </div>
 
-    <div id="container">
-        <video id="webcam" autoplay playsinline muted></video>
-        <canvas id="overlay"></canvas>
+    <div class="panel">
+        <div class="plabel">Системный лог</div>
+        <div id="sysLog">INIT: ЗАГРУЗКА МОДЕЛИ ЗРЕНИЯ...</div>
     </div>
 
-    <div class="controls">
-        <div class="status-box" id="sysLog">СИСТЕМА: ОЖИДАНИЕ...</div>
-        <div class="chat-bubble" id="aiReply">Привет! Подключи LEGO Hub, и я смогу следить за тобой и рассказывать про Актау.</div>
-        
-        <button id="btnConnect">🔌 ПОДКЛЮЧИТЬ РОБОТА</button>
-        <button id="btnTalk">🎤 ЗАДАТЬ ВОПРОС</button>
+    <div class="panel">
+        <div class="plabel">AI-гид Актау</div>
+        <div id="aiReply">Нажми «Подключить SPIKE», затем спроси меня про Актау!</div>
     </div>
 
-    <script>
-        // --- НАСТРОЙКИ ---
-        const GEMINI_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4";
-        const LEGO_SERVICE_UUID = '00001623-1212-efde-1523-785feabcd123';
-        const LEGO_CHARACTERISTIC_UUID = '00001623-1212-efde-1523-785feabcd123';
+    <div id="btn-row">
+        <button id="btnConnect">🔌 Подключить SPIKE</button>
+        <button id="btnTalk">🎤 Задать вопрос</button>
+    </div>
+</div>
 
-        let model, hubChar, recognition;
-        let isMoving = false;
-        let lastMotorUpdate = 0;
+<script>
+// ═══════════════════════════════════════════════════
+//  НАСТРОЙКИ
+// ═══════════════════════════════════════════════════
+const GEMINI_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4";
 
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('overlay');
-        const log = document.getElementById('sysLog');
+// Официальные UUID LEGO SPIKE Prime
+// Источник: https://lego.github.io/spike-prime-docs/connect.html
+const SERVICE_UUID = '0000fd02-0000-1000-8000-00805f9b34fb';
+const RX_UUID      = '0000fd02-0001-1000-8000-00805f9b34fb'; // пишем → хаб получает
+const TX_UUID      = '0000fd02-0002-1000-8000-00805f9b34fb'; // читаем ← хаб отправляет
+
+// Порты моторов (измени если моторы в других портах)
+// A=0, B=1, C=2, D=3, E=4, F=5
+const PORT_LEFT  = 0; // порт A
+const PORT_RIGHT = 1; // порт B
+
+let rxChar = null;
+let visionModel = null;
+let lastDriveTime = 0;
+let lastL = 999, lastR = 999;
+
+const video  = document.getElementById('webcam');
+const canvas = document.getElementById('overlay');
+
+// ═══════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════
+const sysLogEl = document.getElementById('sysLog');
+const pill     = document.getElementById('pill');
+const pillTxt  = document.getElementById('pillTxt');
+
+function log(msg) {
+    const lines = sysLogEl.innerText.split('\n');
+    if (lines.length > 8) lines.shift();
+    lines.push(msg);
+    sysLogEl.innerText = lines.join('\n');
+    sysLogEl.scrollTop = sysLogEl.scrollHeight;
+}
+
+function setPill(cls, txt) {
+    pill.className = 'pill ' + cls;
+    pillTxt.innerText = txt;
+}
+
+function setMotorUI(l, r) {
+    ['ml1','ml2','ml3','mr1','mr2','mr3'].forEach(id =>
+        document.getElementById(id).className = 'mb'
+    );
+    if (l < -2) { document.getElementById('ml1').classList.add('al'); document.getElementById('ml2').classList.add('al'); }
+    if (l >  2) { document.getElementById('ml2').classList.add('al'); document.getElementById('ml3').classList.add('al'); }
+    if (r < -2) { document.getElementById('mr1').classList.add('ar'); document.getElementById('mr2').classList.add('ar'); }
+    if (r >  2) { document.getElementById('mr2').classList.add('ar'); document.getElementById('mr3').classList.add('ar'); }
+}
+
+// ═══════════════════════════════════════════════════
+//  COBS КОДИРОВАНИЕ (официальный протокол SPIKE Prime)
+//  Источник: https://lego.github.io/spike-prime-docs/encoding.html
+// ═══════════════════════════════════════════════════
+const XOR_VAL      = 0x03;
+const END_DELIM    = 0x02;
+const NO_DELIM     = 0xFF;
+const MAX_BLOCK    = 84;
+const COBS_OFFSET  = 3;
+
+function cobsEncode(data) {
+    const buf = [];
+    let codeIdx = 0, block = 0;
+
+    function beginBlock() {
+        codeIdx = buf.length;
+        buf.push(NO_DELIM);
+        block = 1;
+    }
+
+    beginBlock();
+    for (const b of data) {
+        if (b > 0x02) { buf.push(b); block++; }
+        if (b <= 0x02 || block > MAX_BLOCK) {
+            if (b <= 0x02) buf[codeIdx] = (b * MAX_BLOCK) + block + COBS_OFFSET;
+            beginBlock();
+        }
+    }
+    buf[codeIdx] = block + COBS_OFFSET;
+    return buf;
+}
+
+function packMessage(payload) {
+    const encoded = cobsEncode(payload);
+    const result  = encoded.map(b => b ^ XOR_VAL);
+    result.push(END_DELIM);
+    return new Uint8Array(result);
+}
+
+// ═══════════════════════════════════════════════════
+//  SPIKE PRIME СООБЩЕНИЯ
+// ═══════════════════════════════════════════════════
+
+// Обязательный хендшейк при подключении
+function makeInfoRequest() {
+    return packMessage([0x00]);
+}
+
+// TunnelMessage (0x32) — туннелирует Python код на хаб
+function makeTunnelMessage(code) {
+    const bytes = new TextEncoder().encode(code);
+    const size  = bytes.length;
+    const payload = [0x32, size & 0xFF, (size >> 8) & 0xFF, ...bytes];
+    return packMessage(payload);
+}
+
+// ═══════════════════════════════════════════════════
+//  BLUETOOTH
+// ═══════════════════════════════════════════════════
+document.getElementById('btnConnect').onclick = async () => {
+    const btn = document.getElementById('btnConnect');
+    btn.disabled = true;
+    btn.textContent = '⏳ Поиск...';
+
+    try {
+        log('BT: ПОИСК SPIKE PRIME...');
+        setPill('', 'ПОИСК...');
+
+        const device = await navigator.bluetooth.requestDevice({
+            filters: [
+                { namePrefix: 'LEGO'  },
+                { namePrefix: 'SPIKE' },
+                { namePrefix: 'Hub'   }
+            ],
+            optionalServices: [SERVICE_UUID]
+        });
+
+        log('BT: НАЙДЕН: ' + device.name);
+        const server  = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+
+        rxChar = await service.getCharacteristic(RX_UUID);
+
+        // Подписка на уведомления от хаба
+        const txChar = await service.getCharacteristic(TX_UUID);
+        await txChar.startNotifications();
+        txChar.addEventListener('characteristicvaluechanged', e => {
+            const d = new Uint8Array(e.target.value.buffer);
+            if (d.length > 0) log('HUB: ответ получен (тип=' + d[0] + ')');
+        });
+
+        // Обязательный InfoRequest
+        await rxChar.writeValueWithoutResponse(makeInfoRequest());
+        log('BT: РУКОПОЖАТИЕ ОТПРАВЛЕНО');
+
+        setPill('ok', device.name);
+        log('BT: ✓ ГОТОВ К РАБОТЕ');
+
+        btn.style.display = 'none';
+        document.getElementById('btnTalk').style.display = 'flex';
+        document.getElementById('aiReply').innerText =
+            'SPIKE Prime подключён! Встань перед роботом — он последует за тобой.';
+
+        device.addEventListener('gattserverdisconnected', () => {
+            rxChar = null;
+            setPill('err', 'ОТКЛЮЧЁН');
+            log('BT: СОЕДИНЕНИЕ ПОТЕРЯНО');
+        });
+
+    } catch (e) {
+        log('ОШИБКА: ' + e.message);
+        setPill('err', 'ОШИБКА');
+        btn.disabled = false;
+        btn.textContent = '🔌 Подключить SPIKE';
+        console.error(e);
+    }
+};
+
+// ═══════════════════════════════════════════════════
+//  УПРАВЛЕНИЕ МОТОРАМИ
+// ═══════════════════════════════════════════════════
+async function drive(left, right) {
+    if (!rxChar) return;
+
+    const now = Date.now();
+    if (now - lastDriveTime < 120) return;
+
+    const clamp = v => Math.max(-100, Math.min(100, Math.round(v)));
+    const l = clamp(left);
+    const r = clamp(right);
+
+    if (l === lastL && r === lastR) return;
+    lastL = l; lastR = r;
+    lastDriveTime = now;
+
+    setMotorUI(l, r);
+
+    // Python API SPIKE Prime: motor.run(port, velocity)
+    // velocity: -1000 до +1000, умножаем % на 10
+    const lv = l * 10;
+    const rv = r * 10;
+    const code = `import motor\nmotor.run(${PORT_LEFT},${lv})\nmotor.run(${PORT_RIGHT},${rv})\n`;
+
+    try {
+        await rxChar.writeValueWithoutResponse(makeTunnelMessage(code));
+    } catch (e) {
+        console.warn('drive error:', e.message);
+    }
+}
+
+// ═══════════════════════════════════════════════════
+//  ЗРЕНИЕ — BLAZEFACE
+// ═══════════════════════════════════════════════════
+async function initVision() {
+    log('VISION: ЗАГРУЗКА BLAZEFACE...');
+    visionModel = await blazeface.load();
+    log('VISION: МОДЕЛЬ ГОТОВА');
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: 'user' }
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    log('VISION: КАМЕРА АКТИВНА · ЖДУ РОБОТА');
+    runTracking();
+}
+
+async function runTracking() {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const svFace   = document.getElementById('svFace');
+    const svOffset = document.getElementById('svOffset');
+    const svSize   = document.getElementById('svSize');
+    const svMode   = document.getElementById('svMode');
+
+    let preds = [];
+    try { preds = await visionModel.estimateFaces(video, false); } catch(_) {}
+
+    if (preds.length > 0) {
+        const face = preds[0];
+        const [x1,y1] = face.topLeft;
+        const [x2,y2] = face.bottomRight;
+        const fw = x2 - x1;
+        const cx = x1 + fw / 2;
+        const cy = y1 + (y2-y1) / 2;
+        const screenCX = canvas.width / 2;
+        const offset   = cx - screenCX;
+
+        // Рамка вокруг лица
+        ctx.strokeStyle = '#00ffe5';
+        ctx.lineWidth   = 2;
+        ctx.shadowColor = '#00ffe5';
+        ctx.shadowBlur  = 10;
+        ctx.strokeRect(x1, y1, fw, y2-y1);
+        ctx.shadowBlur  = 0;
+
+        // Крест
+        ctx.strokeStyle = 'rgba(0,255,229,0.6)';
+        ctx.lineWidth   = 1;
+        ctx.beginPath(); ctx.moveTo(cx-8,cy); ctx.lineTo(cx+8,cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx,cy-8); ctx.lineTo(cx,cy+8); ctx.stroke();
+
+        // Линия к центру
+        ctx.strokeStyle = Math.abs(offset) > 35 ? 'rgba(255,107,0,0.4)' : 'rgba(0,255,229,0.2)';
+        ctx.setLineDash([4,4]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(screenCX,cy); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // ── ЛОГИКА СЛЕДОВАНИЯ ──────────────────────────────────
+        // Размер лица → дистанция. Целевой размер = 130px
+        const TARGET = 130;
+        const S_DEAD = 25;  // мёртвая зона размера (±px)
+        const T_DEAD = 35;  // мёртвая зона поворота (±px)
+
+        // Вперёд/назад
+        const sizeErr = TARGET - fw;
+        let fwd = 0;
+        if (Math.abs(sizeErr) > S_DEAD) {
+            fwd = Math.min(Math.abs(sizeErr) / 3, 45) * Math.sign(sizeErr);
+        }
+
+        // Поворот
+        let turn = 0;
+        if (Math.abs(offset) > T_DEAD) {
+            turn = Math.min(Math.abs(offset) / 5, 35) * Math.sign(offset);
+        }
+
+        // Левый и правый мотор
+        // offset > 0 → лицо правее → turn > 0 → левый быстрее, правый медленнее
+        drive(fwd + turn, fwd - turn);
+
+        // Текст режима
+        let mode = 'СТОП';
+        if (Math.abs(fwd) > 3 && Math.abs(turn) > 3)
+            mode = (fwd>0?'↑':'↓') + ' + ' + (turn>0?'→':'←');
+        else if (Math.abs(fwd) > 3)
+            mode = fwd > 0 ? '↑ ВПЕРЁД' : '↓ НАЗАД';
+        else if (Math.abs(turn) > 3)
+            mode = turn > 0 ? '→ ВПРАВО' : '← ВЛЕВО';
+
+        svFace.textContent   = '● ЕСТЬ';
+        svFace.style.color   = 'var(--accent)';
+        svOffset.textContent = (offset>0?'+':'')+Math.round(offset)+'px';
+        svOffset.style.color = Math.abs(offset)>T_DEAD ? 'var(--accent2)' : 'var(--accent)';
+        svSize.textContent   = Math.round(fw)+'px';
+        svSize.style.color   = Math.abs(sizeErr)>S_DEAD ? 'var(--accent2)' : 'var(--accent)';
+        svMode.textContent   = mode;
+        svMode.style.color   = mode==='СТОП' ? 'var(--dim)' : 'var(--accent2)';
+
+    } else {
+        drive(0, 0);
+        setMotorUI(0, 0);
+        svFace.textContent   = '○ НЕТ';   svFace.style.color   = 'var(--dim)';
+        svOffset.textContent = '—';        svOffset.style.color = 'var(--dim)';
+        svSize.textContent   = '—';        svSize.style.color   = 'var(--dim)';
+        svMode.textContent   = 'СТОП';     svMode.style.color   = 'var(--dim)';
+    }
+
+    requestAnimationFrame(runTracking);
+}
+
+// ═══════════════════════════════════════════════════
+//  ГОЛОС + GEMINI
+// ═══════════════════════════════════════════════════
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+
+if (SR) {
+    recognition = new SR();
+    recognition.lang = 'ru-RU';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onstart  = () => document.getElementById('btnTalk').classList.add('listening');
+    recognition.onend    = () => document.getElementById('btnTalk').classList.remove('listening');
+    recognition.onerror  = e  => log('РЕЧЬ: ОШИБКА — ' + e.error);
+
+    recognition.onresult = async (e) => {
+        const text  = e.results[0][0].transcript;
         const aiBox = document.getElementById('aiReply');
+        aiBox.innerHTML = `<div class="you">ВЫ:</div>${text}`;
+        log('AI: ЗАПРОС К GEMINI...');
 
-        // --- 1. BLUETOOTH (ИДЕАЛЬНОЕ ПОДКЛЮЧЕНИЕ) ---
-        document.getElementById('btnConnect').onclick = async () => {
-            try {
-                log.innerText = "СИСТЕМА: ПОИСК LEGO HUB...";
-                // Фильтруем устройства, чтобы видеть только LEGO
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'LEGO' }, { namePrefix: 'Hub' }],
-                    optionalServices: [LEGO_SERVICE_UUID]
-                });
-
-                log.innerText = "СИСТЕМА: СОЕДИНЕНИЕ...";
-                const server = await device.gatt.connect();
-                
-                // Проверка на наличие сервиса перед использованием
-                const service = await server.getPrimaryService(LEGO_SERVICE_UUID).catch(() => null);
-                
-                if (!service) {
-                    throw new Error("Это устройство не поддерживает протокол LEGO LWP3.");
+        try {
+            const res  = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+                {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        contents:[{parts:[{text:
+                            `Ты — робот-гид по городу Актау (Казахстан). Отвечай кратко и интересно, не более 25 слов. Вопрос: ${text}`
+                        }]}]
+                    })
                 }
-
-                hubChar = await service.getCharacteristic(LEGO_CHARACTERISTIC_UUID);
-                
-                log.innerText = "СИСТЕМА: РОБОТ ГОТОВ";
-                document.getElementById('btnConnect').style.display = 'none';
-                document.getElementById('btnTalk').style.display = 'block';
-                aiBox.innerText = "Связь установлена! Я готов двигаться.";
-                
-            } catch (e) {
-                log.innerText = "ОШИБКА: " + e.message;
-                console.error(e);
-            }
-        };
-
-        async function drive(leftSpeed, rightSpeed) {
-            const now = Date.now();
-            if (!hubChar || now - lastMotorUpdate < 100) return;
-            lastMotorUpdate = now;
-
-            // Формирование команды для LEGO Hub (Port Output Command)
-            // Порт A (00), Порт B (01). WriteDirect (0x51)
-            const cmd = (port, spd) => new Uint8Array([0x08, 0x00, 0x81, port, 0x11, 0x51, 0x00, spd & 0xFF]);
-            
-            try {
-                await hubChar.writeValueWithoutResponse(cmd(0x00, leftSpeed));
-                await hubChar.writeValueWithoutResponse(cmd(0x01, -rightSpeed)); // Инверсия для разворота
-            } catch (e) { console.warn("Motor signal lost"); }
+            );
+            const data  = await res.json();
+            const reply = data.candidates[0].content.parts[0].text;
+            aiBox.innerText = reply;
+            log('AI: ОТВЕТ ПОЛУЧЕН');
+            const utt = new SpeechSynthesisUtterance(reply);
+            utt.lang = 'ru-RU';
+            window.speechSynthesis.speak(utt);
+        } catch (err) {
+            aiBox.innerText = 'Ошибка AI. Проверь интернет.';
+            log('AI: ОШИБКА — ' + err.message);
         }
+    };
+} else {
+    log('РЕЧЬ: API не поддерживается браузером');
+}
 
-        // --- 2. ЗРЕНИЕ (ПЛАВНОЕ СЛЕЖЕНИЕ) ---
-        async function initAI() {
-            log.innerText = "СИСТЕМА: ЗАГРУЗКА ЗРЕНИЯ...";
-            model = await blazeface.load();
-            
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                log.innerText = "СИСТЕМА: ОЖИДАНИЕ РОБОТА";
-                runTracking();
-            };
-        }
+document.getElementById('btnTalk').onclick = () => {
+    if (recognition) { recognition.start(); log('РЕЧЬ: СЛУШАЮ...'); }
+};
 
-        async function runTracking() {
-            const ctx = canvas.getContext('2d');
-            const predictions = await model.estimateFaces(video, false);
-            
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            if (predictions.length > 0) {
-                const face = predictions[0];
-                const xCenter = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0]) / 2;
-                const screenCenter = video.videoWidth / 2;
-                
-                // Рисуем рамку
-                ctx.strokeStyle = "#00ffcc";
-                ctx.lineWidth = 3;
-                ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
-
-                // Логика движения
-                const offset = xCenter - screenCenter;
-                if (Math.abs(offset) > 40) {
-                    // Плавная скорость: чем дальше от центра, тем быстрее (но не более 30)
-                    const speed = Math.min(Math.abs(offset) / 5, 30) * (offset > 0 ? -1 : 1);
-                    drive(speed, -speed);
-                } else {
-                    drive(0, 0);
-                }
-            } else {
-                drive(0, 0);
-            }
-            requestAnimationFrame(runTracking);
-        }
-
-        // --- 3. ГОЛОС И GEMINI ---
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRec) {
-            recognition = new SpeechRec();
-            recognition.lang = 'ru-RU';
-            
-            recognition.onresult = async (e) => {
-                const text = e.results[0][0].transcript;
-                aiBox.innerText = "Вы: " + text;
-                log.innerText = "СИСТЕМА: ЗАПРОС К ИИ...";
-                
-                try {
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({
-                            contents: [{parts: [{text: `Ты - робот-гид по Актау. Отвечай кратко (до 20 слов). Рассказывай интересно. Вопрос: ${text}`}]}]
-                        })
-                    });
-                    const data = await res.json();
-                    const reply = data.candidates[0].content.parts[0].text;
-                    aiBox.innerText = reply;
-                    
-                    const speech = new SpeechSynthesisUtterance(reply);
-                    speech.lang = 'ru-RU';
-                    window.speechSynthesis.speak(speech);
-                } catch (err) { aiBox.innerText = "Ошибка ИИ. Проверь интернет."; }
-                
-                log.innerText = "СИСТЕМА: РОБОТ ГОТОВ";
-            };
-        }
-
-        document.getElementById('btnTalk').onclick = () => {
-            recognition.start();
-            log.innerText = "СИСТЕМА: СЛУШАЮ...";
-        };
-
-        initAI();
-    </script>
+// ═══════════════════════════════════════════════════
+//  СТАРТ
+// ═══════════════════════════════════════════════════
+initVision().catch(e => log('VISION ERROR: ' + e.message));
+</script>
 </body>
 </html>
