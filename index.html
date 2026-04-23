@@ -3,183 +3,334 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Robot Guide Final</title>
+    <title>Ultimate AI Robot Guide Aktau v3.0</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0a0a0a; color: #fff; margin: 0; }
-        #video-container { position: relative; width: 100%; max-width: 500px; margin: 10px auto; border-radius: 20px; overflow: hidden; border: 4px solid #333; }
-        video { width: 100%; display: block; transform: scaleX(-1); }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
-        .controls { padding: 20px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
-        button { padding: 15px 40px; font-size: 18px; border-radius: 50px; border: none; cursor: pointer; transition: 0.3s; }
-        #connectBtn { background: #00ff88; color: #000; font-weight: bold; }
-        #talkBtn { background: #0088ff; color: #fff; display: none; }
-        #status { font-family: monospace; color: #00ff88; margin-top: 10px; min-height: 20px; }
-        .ai-box { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 15px; width: 80%; max-width: 400px; font-style: italic; }
+        :root { --neon: #00ff88; --dark-bg: #030303; --panel-bg: #0f0f0f; }
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--dark-bg); color: #f0f0f0; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        
+        /* Видео-панель */
+        #video-wrap { position: relative; width: 480px; height: 360px; margin-top: 30px; border: 3px solid var(--neon); border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 0 25px rgba(0, 255, 136, 0.4); }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        canvas { position: absolute; top:0; left:0; width: 100%; height: 100%; transform: scaleX(-1); }
+
+        /* Панель управления */
+        .ui-panel { width: 480px; padding: 25px; box-sizing: border-box; background: var(--panel-bg); border-radius: 20px; margin-top: 20px; border: 1px solid #222; }
+        .status-bar { font-family: 'Courier New', monospace; font-size: 13px; color: var(--neon); margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .ai-msg { background: rgba(255,255,255,0.03); border-left: 4px solid var(--neon); padding: 18px; border-radius: 8px; font-style: italic; min-height: 50px; margin-bottom: 20px; line-height: 1.5; color: #d0d0d0; }
+
+        /* Кнопки */
+        button { width: 100%; padding: 18px; margin: 8px 0; border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer; transition: all 0.2s ease-in-out; text-transform: uppercase; letter-spacing: 1px; }
+        
+        #connBtn { background: linear-gradient(135deg, var(--neon) 0%, #00d672 100%); color: #000; box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); }
+        #micBtn { background: linear-gradient(135deg, #0088ff 0%, #0066cc 100%); color: white; display: none; box-shadow: 0 4px 15px rgba(0, 136, 255, 0.3); }
+        #micBtn.listening { background: #ff4444; animation: pulse 1.5s infinite; }
+
+        button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 255, 136, 0.5); }
+        button:active { transform: translateY(1px) scale(0.99); }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
-    <div id="video-container">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas"></canvas>
+    <div id="video-wrap">
+        <video id="v" autoplay playsinline muted></video>
+        <canvas id="c"></canvas>
     </div>
 
-    <div class="controls">
-        <div id="status">Загрузка ИИ...</div>
-        <div id="ai-response" class="ai-box">Нажмите "Слушать", чтобы начать диалог</div>
-        <button id="connectBtn">ПОДКЛЮЧИТЬ LEGO HUB</button>
-        <button id="talkBtn">🎤 СЛУШАТЬ</button>
+    <div class="ui-panel">
+        <div id="st" class="status-bar">СИСТЕМА: ИНИЦИАЛИЗАЦИЯ...</div>
+        <div id="msg" class="ai-msg">Привет! Я робот-гид по Актау. Активируй мой хаб и разреши доступ к камере, чтобы я мог работать идеально.</div>
+        
+        <button id="connBtn">🔌 ПОДКЛЮЧИТЬ РОБОТА (LEGO)</button>
+        <button id="micBtn">🎤 ЗАДАТЬ ВОПРОС</button>
     </div>
 
     <script>
-        const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4";
-        
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const status = document.getElementById('status');
-        const aiBox = document.getElementById('ai-response');
-        const connectBtn = document.getElementById('connectBtn');
-        const talkBtn = document.getElementById('talkBtn');
+        // --- КОНФИГУРАЦИЯ ---
+        const GEMINI_API_KEY = "ВАШ_API_КЛЮЧ_GEMINI"; // !!! ЗАМЕНИТЕ НА ВАШ КЛЮЧ !!!
+        const LWP_SERVICE_UUID = '00001623-1212-efde-1523-785feabcd123';
+        const LWP_CHAR_UUID = '00001623-1212-efde-1523-785feabcd123';
 
-        let model, hubChar, recognition;
-        let isTracking = true;
-        let lastCommandTime = 0;
+        // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ СОСТОЯНИЯ ---
+        let bleDevice = null;
+        let bleChar = null;
+        let faceModel = null;
+        let isSpeaking = false; // Блокировка движения при разговоре
+        let currentLeftSpeed = 0;
+        let currentRightSpeed = 0;
 
-        // --- 1. СВЯЗЬ С LEGO (Bluetooth) ---
-       // --- 1. СВЯЗЬ С ЛЮБЫМ BLUETOOTH УСТРОЙСТВОМ ---
-        connectBtn.onclick = async () => {
-            try {
-                status.innerText = "Поиск устройств...";
-                
-                const device = await navigator.bluetooth.requestDevice({
-                    // Разрешаем поиск всех устройств поблизости
-                    acceptAllDevices: true,
-                    // Если вы планируете работать с LEGO Hub, его сервис нужно 
-                    // перечислить здесь, иначе браузер не даст к нему доступ после подключения
-                    optionalServices: ['00001623-1212-efde-1523-785feabcd123']
-                });
-
-                status.innerText = `Подключение к ${device.name || 'устройству'}...`;
-                
-                const server = await device.gatt.connect();
-                
-                // Пытаемся получить сервис (работает, если это LEGO или устройство с таким же UUID)
-                const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
-                hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
-                
-                status.innerText = "Подключено: " + (device.name || "Неизвестно");
-                connectBtn.style.display = "none";
-                talkBtn.style.display = "block";
-                
-            } catch (e) { 
-                status.innerText = "Ошибка: " + e.message; 
-                console.error(e);
-            }
+        const ui = {
+            status: document.getElementById('st'),
+            msg: document.getElementById('msg'),
+            connBtn: document.getElementById('connBtn'),
+            micBtn: document.getElementById('micBtn'),
+            video: document.getElementById('v'),
+            canvas: document.getElementById('c')
         };
 
-        async function sendLegoMove(left, right) {
-            const now = Date.now();
-            if (!hubChar || now - lastCommandTime < 100) return; // Ограничение: 10 команд в сек
-            lastCommandTime = now;
-
-            // Команда моторам (Port Output Command)
-            // Порт 0 (A) и Порт 1 (B)
-            const cmdA = [0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff];
-            const cmdB = [0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]; // Инверсия для симметрии
-            
-            const fullCmd = new Uint8Array([...cmdA, ...cmdB]);
-            await hubChar.writeValueWithoutResponse(fullCmd);
-        }
-
-        // --- 2. ГОЛОС И GEMINI ---
-        if ('webkitSpeechRecognition' in window) {
-            recognition = new webkitSpeechRecognition();
-            recognition.lang = 'ru-RU';
-            recognition.onresult = (event) => {
-                const text = event.results[0][0].transcript;
-                aiBox.innerText = "Вы: " + text;
-                processWithAI(text);
-            };
-        }
-
-        talkBtn.onclick = () => {
-            recognition.start();
-            status.innerText = "Слушаю...";
-        };
-
-        async function processWithAI(text) {
-            if (text.toLowerCase().includes("до свидания") || text.toLowerCase().includes("спасибо")) {
-                isTracking = false;
-                speak("Пожалуйста! Был рад помочь. До встречи!");
+        // --- 1. ФУНКЦИОНАЛ: BLUETOOTH (НАДЕЖНОЕ УПРАВЛЕНИЕ) ---
+        ui.connBtn.onclick = async () => {
+            if (!navigator.bluetooth) {
+                updateStatus("ОШИБКА: Web Bluetooth не поддерживается данным браузером.");
                 return;
             }
 
-            status.innerText = "Запрос к Gemini...";
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                updateStatus("ПОИСК LEGO ХАБА...");
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'LEGO' }, { namePrefix: 'Hub' }, { namePrefix: 'Technic Hub' }],
+                    optionalServices: [LWP_SERVICE_UUID]
+                });
+                
+                // Обработка отключения
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                updateStatus(`ПОДКЛЮЧЕНИЕ К ${bleDevice.name}...`);
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(LWP_SERVICE_UUID);
+                bleChar = await service.getCharacteristic(LWP_CHR_UUID);
+                
+                updateStatus("СИСТЕМА: РОБОТ АКТИВИРОВАН И ГОТОВ К ДВИЖЕНИЮ");
+                ui.connBtn.style.display = 'none';
+                ui.micBtn.style.display = 'block';
+                ui.msg.innerText = "Я подключен! Теперь я буду идеально следить за тобой и отвечать на вопросы.";
+                
+                // Инициализация моторов (установка в 0)
+                await moveMotorsImmediate(0, 0);
+
+            } catch (e) {
+                updateStatus("ОШИБКА ПОДКЛЮЧЕНИЯ: " + e.message);
+                console.error(e);
+            }
+        };
+
+        function onDisconnected(event) {
+            updateStatus("РОБОТ ОТКЛЮЧЕН (ПОТЕРЯ СВЯЗИ)");
+            bleChar = null;
+            ui.connBtn.style.display = 'block';
+            ui.micBtn.style.display = 'none';
+            ui.msg.innerText = "Ой, я потерял связь с хабом. Пожалуйста, подключи меня снова.";
+        }
+
+        async function moveMotorsImmediate(spdLeft, spdRight) {
+            if (!bleChar) return;
+            // Оптимизация: не отправляем команду, если скорость не изменилась
+            if (spdLeft === currentLeftSpeed && spdRight === currentRightSpeed) return;
+
+            const send = async (port, speed) => {
+                // Пакет LWP3: WriteDirectModeData (0x81 -> 0x11 -> 0x51 -> 0x00)
+                const data = new Uint8Array([0x08, 0x00, 0x81, port, 0x11, 0x51, 0x00, speed & 0xFF]);
+                try {
+                    await bleChar.writeValueWithoutResponse(data);
+                } catch (e) { console.warn("Motor command failed"); }
+            };
+
+            await send(0x00, spdLeft);  // Порт A (Левый мотор)
+            await send(0x01, -spdRight); // Порт B (Правый мотор, инверсия для tank turn)
+            currentLeftSpeed = spdLeft;
+            currentRightSpeed = spdRight;
+        }
+
+        // --- 2. ФУНКЦИОНАЛ: ЗРЕНИЕ (ПЛАВНОЕ СЛЕЖЕНИЕ) ---
+        async function initVision() {
+            updateStatus("ЗАГРУЗКА МОДЕЛИ ЗРЕНИЯ...");
+            try {
+                faceModel = await blazeface.load();
+                updateStatus("ДОСТУП К КАМЕРЕ...");
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480, facingMode: "user" } 
+                });
+                ui.video.srcObject = stream;
+                
+                ui.video.onloadedmetadata = () => {
+                    ui.canvas.width = ui.video.videoWidth;
+                    ui.canvas.height = ui.video.videoHeight;
+                    updateStatus("ЗРЕНИЕ АКТИВИРОВАНО");
+                    if (!bleChar) updateStatus("ОЖИДАНИЕ ПОДКЛЮЧЕНИЯ РОБОТА...");
+                    requestAnimationFrame(trackLoop);
+                };
+            } catch (e) {
+                updateStatus("ОШИБКА КАМЕРЫ: ДОСТУП ЗАПРЕЩЕН ИЛИ КАМЕРА ЗАНЯТА");
+                ui.msg.innerText = "Мне нужен доступ к камере, чтобы я мог идеально следить за тобой.";
+            }
+        }
+
+        async function trackLoop() {
+            if (!faceModel || ui.video.readyState !== 4) {
+                requestAnimationFrame(trackLoop);
+                return;
+            }
+
+            const ctx = ui.canvas.getContext('2d');
+            ctx.clearRect(0, 0, ui.canvas.width, ui.canvas.height);
+
+            // Не двигаемся, если робот говорит или ИИ думает
+            if (isSpeaking) {
+                await moveMotorsImmediate(0, 0);
+                requestAnimationFrame(trackLoop);
+                return;
+            }
+
+            const predictions = await faceModel.estimateFaces(ui.video, false);
+
+            if (predictions.length > 0) {
+                const face = predictions[0];
+                const start = face.topLeft;
+                const end = face.bottomRight;
+                const faceWidth = end[0] - start[0];
+                
+                // Отрисовка рамки (визуализация идеальной работы)
+                ctx.strokeStyle = "#00ff88";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(start[0], start[1], faceWidth, end[1]-start[1]);
+
+                // Расчет центра лица и отклонения
+                const faceCenterX = start[0] + faceWidth / 2;
+                const screenMid = ui.video.videoWidth / 2;
+                const error = faceCenterX - screenMid; // Отклонение от центра
+
+                // Мертвая зона (Deadzone) - чтобы робот не дергался по центру
+                const deadzone = 50; 
+
+                if (Math.abs(error) > deadzone) {
+                    // ПРОПОРЦИОНАЛЬНЫЙ КОНТРОЛЛЕР (ПЛАВНОЕ СЛЕЖЕНИЕ)
+                    // Скорость зависит от величины ошибки (error).
+                    // Чем дальше лицо от центра, тем быстрее поворот.
+                    const Kp = 0.25; // Коэффициент усиления (настройте для резкости/плавности)
+                    let targetSpeed = error * Kp;
+                    
+                    // Ограничение максимальной и минимальной скорости моторов (чтобы не ехал слишком быстро и не глох)
+                    const maxSpeed = 35;
+                    const minSpeed = 15;
+
+                    targetSpeed = Math.max(-maxSpeed, Math.min(maxSpeed, targetSpeed));
+                    
+                    // Если скорость слишком мала, устанавливаем минимальную, чтобы сдвинуть шестерни
+                    if (Math.abs(targetSpeed) < minSpeed) {
+                        targetSpeed = targetSpeed > 0 ? minSpeed : -minSpeed;
+                    }
+
+                    // Поворот на месте (Tank Turn)
+                    await moveMotorsImmediate(-targetSpeed, targetSpeed); 
+                } else {
+                    // Лицо в центре мертвой зоны - СТОП
+                    await moveMotorsImmediate(0, 0);
+                }
+            } else {
+                // Лицо не найдено - СТОП
+                await moveMotorsImmediate(0, 0);
+            }
+            requestAnimationFrame(trackLoop);
+        }
+
+        // --- 3. ФУНКЦИОНАЛ: ИИ И РЕЧЬ (GEMINI И TTS) ---
+        ui.micBtn.onclick = () => {
+            if (isSpeaking) return; // Не слушаем, если уже говорим
+
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) {
+                updateStatus("ОШИБКА: Распознавание речи не поддерживается.");
+                return;
+            }
+
+            const recognition = new SpeechRec();
+            recognition.lang = 'ru-RU';
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                updateStatus("СИСТЕМА: СЛУШАЮ ВОПРОС...");
+                ui.micBtn.classList.add('listening');
+                ui.micBtn.innerText = "🛑 СЛУШАЮ...";
+                isSpeaking = true; // Блокируем движение во время слушания
+            };
+
+            recognition.onresult = async (event) => {
+                const transcript = event.results[0][0].transcript;
+                ui.msg.innerText = "Вы спросили: " + transcript;
+                await askGeminiAI(transcript);
+            };
+
+            recognition.onerror = (event) => {
+                updateStatus("ОШИБКА РАСПОЗНАВАНИЯ: " + event.error);
+                stopListeningState();
+            };
+
+            recognition.onend = () => {
+                // Мы не выключаем isSpeaking здесь, так как ждем ответ ИИ.
+                // Движение разблокируется в функции speak().
+            };
+
+            recognition.start();
+        };
+
+        function stopListeningState() {
+            ui.micBtn.classList.remove('listening');
+            ui.micBtn.innerText = "🎤 ЗАДАТЬ ВОПРОС";
+            isSpeaking = false; // Разблокируем движение, если ошибка
+        }
+
+        async function askGeminiAI(query) {
+            updateStatus("АНАЛИЗ ВОПРОСА GEMINI ИИ...");
+            
+            if (GEMINI_API_KEY === "ВАШ_API_КЛЮЧ_GEMINI") {
+                ui.msg.innerText = "ОШИБКА КЛЮЧА ИИ. Пожалуйста, вставьте ваш реальный API Ключ Gemini в код (строка 45).";
+                speak("Пожалуйста, вставьте ваш апи ключ джеминай в код.");
+                return;
+            }
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Ты - робот-гид в Актау. Отвечай кратко (15 слов макс). Вопрос: ${text}` }] }]
+                        contents: [{parts: [{text: `Ты - веселый и знающий робот-гид по городу Актау. Отвечай коротко (максимум 2 предложения), дружелюбно и по существу. Вопрос: ${query}`}]}]
                     })
                 });
-                const data = await res.json();
-                const reply = data.candidates[0].content.parts[0].text;
-                aiBox.innerText = reply;
-                speak(reply);
-            } catch (e) { 
-                aiBox.innerText = "Ошибка ИИ: " + e.message; 
-                console.error(e);
+                
+                if (!response.ok) throw new Error("API Network error");
+
+                const data = await response.json();
+                const replyText = data.candidates[0].content.parts[0].text;
+                ui.msg.innerText = replyText;
+                
+                speak(replyText);
+            } catch (e) {
+                updateStatus("ОШИБКА СВЯЗИ С ИИ");
+                ui.msg.innerText = "Извини, я сейчас не могу связаться со своим цифровым мозгом.";
+                speak("Извини, я сейчас не могу связаться со своим цифровым мозгом.");
             }
         }
 
         function speak(text) {
-            const msg = new SpeechSynthesisUtterance(text);
-            msg.lang = 'ru-RU';
-            window.speechSynthesis.speak(msg);
-        }
+            updateStatus("РОБОТ ГОВОРИТ...");
+            const synth = window.speechSynthesis;
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ru-RU';
+            utterance.pitch = 1.1; // Чуть более "роботизированный", но приятный тон
+            utterance.rate = 1.0;
 
-        // --- 3. ЗРЕНИЕ И СЛЕЖЕНИЕ ---
-        async function setup() {
-            model = await blazeface.load();
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                status.innerText = "ИИ готов. Подключите робота.";
-                detect();
+            utterance.onend = () => {
+                updateStatus(bleChar ? "СИСТЕМА: РОБОТ АКТИВИРОВАН" : "ГОТОВ");
+                stopListeningState(); // Разблокируем движение ПОСЛЕ того, как договорили
             };
+
+            // Отменяем предыдущие речи, если они есть
+            synth.cancel();
+            synth.speak(utterance);
         }
 
-        async function detect() {
-            if (!isTracking) return;
-            const preds = await model.estimateFaces(video, false);
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0,0, canvas.width, canvas.height);
-
-            if (preds.length > 0) {
-                const face = preds[0];
-                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0])/2;
-                const center = canvas.width / 2;
-
-                ctx.strokeStyle = "#00ff88";
-                ctx.lineWidth = 4;
-                ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
-
-                // Порог чувствительности: 60 пикселей от центра
-                if (x < center - 60) sendLegoMove(20, -20);
-                else if (x > center + 60) sendLegoMove(-20, 20);
-                else sendLegoMove(0, 0);
-            } else {
-                sendLegoMove(0, 0);
-            }
-            requestAnimationFrame(detect);
+        function updateStatus(text) {
+            ui.status.innerText = "СТАТУС: " + text;
+            console.log("Status:", text);
         }
 
-        setup();
+        // --- ЗАПУСК ---
+        initVision();
     </script>
 </body>
 </html>
