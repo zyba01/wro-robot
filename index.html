@@ -3,44 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TechTeens AI Robot - IP Cam Edition</title>
+    <title>AI Robot Guide Final</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
     <style>
-        :root { --neon: #00ff88; --bg: #0a0a0a; }
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: var(--bg); color: #fff; margin: 0; overflow-x: hidden; }
-        #video-container { position: relative; width: 90%; max-width: 500px; margin: 20px auto; border-radius: 20px; overflow: hidden; border: 3px solid var(--neon); box-shadow: 0 0 20px rgba(0,255,136,0.3); }
-        /* При использовании IP-камеры часто не нужно зеркалить (transform: scaleX(-1)), 
-           но если будет инверсия — просто удали строку ниже */
-        img#video-stream { width: 100%; display: block; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        .controls { padding: 15px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
-        button { padding: 16px 35px; font-size: 16px; border-radius: 30px; border: none; cursor: pointer; font-weight: bold; width: 80%; transition: 0.3s; }
-        #connectBtn { background: var(--neon); color: #000; }
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0a0a0a; color: #fff; margin: 0; }
+        #video-container { position: relative; width: 100%; max-width: 500px; margin: 10px auto; border-radius: 20px; overflow: hidden; border: 4px solid #333; }
+        video { width: 100%; display: block; transform: scaleX(-1); }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+        .controls { padding: 20px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        button { padding: 15px 40px; font-size: 18px; border-radius: 50px; border: none; cursor: pointer; transition: 0.3s; }
+        #connectBtn { background: #00ff88; color: #000; font-weight: bold; }
         #talkBtn { background: #0088ff; color: #fff; display: none; }
-        #status { font-family: monospace; color: var(--neon); font-size: 14px; margin: 10px; min-height: 1.2em; }
-        .ai-box { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 15px; width: 85%; border: 1px solid rgba(255,255,255,0.1); min-height: 60px; }
+        #status { font-family: monospace; color: #00ff88; margin-top: 10px; min-height: 20px; }
+        .ai-box { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 15px; width: 80%; max-width: 400px; font-style: italic; }
     </style>
 </head>
 <body>
 
     <div id="video-container">
-        <img id="video-stream" src="" crossorigin="anonymous">
+        <video id="video" autoplay playsinline></video>
         <canvas id="canvas"></canvas>
     </div>
 
     <div class="controls">
-        <div id="status">Ожидание настройки...</div>
-        <div id="ai-response" class="ai-box">Подключите LEGO и запустите сервер камеры</div>
-        <button id="connectBtn">1. ПОДКЛЮЧИТЬ LEGO HUB</button>
-        <button id="talkBtn">🎤 ЗАДАТЬ ВОПРОС</button>
+        <div id="status">Загрузка ИИ...</div>
+        <div id="ai-response" class="ai-box">Нажмите "Слушать", чтобы начать диалог</div>
+        <button id="connectBtn">ПОДКЛЮЧИТЬ LEGO HUB</button>
+        <button id="talkBtn">🎤 СЛУШАТЬ</button>
     </div>
 
     <script>
-        const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4"; 
-        const IP_CAM_URL = "http://192.168.100.6:8081/video"; // Твой адрес
-
-        const img = document.getElementById('video-stream');
+        const GEMINI_API_KEY = "AIzaSyCZ5eF8S8KQyqvdVCH0TSnuHVX1a4vw8J4";
+        
+        const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const status = document.getElementById('status');
         const aiBox = document.getElementById('ai-response');
@@ -48,11 +44,10 @@
         const talkBtn = document.getElementById('talkBtn');
 
         let model, hubChar, recognition;
-        let isSpeaking = false;
-        let isBTBusy = false;
-        let lastBTTime = 0;
+        let isTracking = true;
+        let lastCommandTime = 0;
 
-        // --- 1. BLUETOOTH (LEGO SPIKE) ---
+        // --- 1. СВЯЗЬ С LEGO (Bluetooth) ---
         connectBtn.onclick = async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
@@ -62,102 +57,105 @@
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService('00001623-1212-efde-1523-785feabcd123');
                 hubChar = await service.getCharacteristic('00001623-1212-efde-1523-785feabcd123');
-                status.innerText = "LEGO ПОДКЛЮЧЕН";
+                status.innerText = "LEGO подключен!";
                 connectBtn.style.display = "none";
                 talkBtn.style.display = "block";
-            } catch (e) { status.innerText = "Ошибка BT: " + e.message; }
+            } catch (e) { status.innerText = "Ошибка Bluetooth: " + e.message; }
         };
 
         async function sendLegoMove(left, right) {
             const now = Date.now();
-            if (!hubChar || isBTBusy || now - lastBTTime < 130) return;
-            isBTBusy = true; lastBTTime = now;
+            if (!hubChar || now - lastCommandTime < 100) return; // Ограничение: 10 команд в сек
+            lastCommandTime = now;
+
+            // Команда моторам (Port Output Command)
+            // Порт 0 (A) и Порт 1 (B)
+            const cmdA = [0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff];
+            const cmdB = [0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]; // Инверсия для симметрии
             
-            const cmdA = new Uint8Array([0x08, 0x00, 0x81, 0x00, 0x11, 0x51, 0x01, left & 0xff]);
-            const cmdB = new Uint8Array([0x08, 0x00, 0x81, 0x01, 0x11, 0x51, 0x01, (-right) & 0xff]);
-            
-            try {
-                await hubChar.writeValueWithoutResponse(cmdA);
-                await new Promise(r => setTimeout(r, 45));
-                await hubChar.writeValueWithoutResponse(cmdB);
-            } catch (e) {} finally { isBTBusy = false; }
+            const fullCmd = new Uint8Array([...cmdA, ...cmdB]);
+            await hubChar.writeValueWithoutResponse(fullCmd);
         }
 
-        // --- 2. ИИ И РЕЧЬ ---
-        async function processWithAI(text) {
-            status.innerText = "Gemini думает...";
-            try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: `Ты робот-гид TechTeens. Кратко: ${text}` }] }] })
-                });
-                const data = await res.json();
-                const reply = data.candidates[0].content.parts[0].text;
-                aiBox.innerText = reply;
-                
-                isSpeaking = true;
-                const msg = new SpeechSynthesisUtterance(reply);
-                msg.lang = 'ru-RU';
-                msg.onend = () => { isSpeaking = false; status.innerText = "Стрим активен"; };
-                window.speechSynthesis.speak(msg);
-            } catch (e) { status.innerText = "Ошибка ИИ"; }
-        }
-
+        // --- 2. ГОЛОС И GEMINI ---
         if ('webkitSpeechRecognition' in window) {
             recognition = new webkitSpeechRecognition();
             recognition.lang = 'ru-RU';
-            recognition.onresult = (e) => {
-                const text = e.results[0][0].transcript;
+            recognition.onresult = (event) => {
+                const text = event.results[0][0].transcript;
                 aiBox.innerText = "Вы: " + text;
                 processWithAI(text);
             };
         }
-        talkBtn.onclick = () => { recognition.start(); status.innerText = "Слушаю..."; };
 
-        // --- 3. ЗРЕНИЕ ЧЕРЕЗ IP-ПОТОК ---
-        async function setup() {
+        talkBtn.onclick = () => {
+            recognition.start();
+            status.innerText = "Слушаю...";
+        };
+
+        async function processWithAI(text) {
+            if (text.toLowerCase().includes("до свидания") || text.toLowerCase().includes("спасибо")) {
+                isTracking = false;
+                speak("Пожалуйста! Был рад помочь. До встречи!");
+                return;
+            }
+
+            status.innerText = "Запрос к Gemini...";
             try {
-                status.innerText = "Загрузка нейросети...";
-                model = await blazeface.load();
-                
-                // Подключаемся к стриму приложения
-                img.src = IP_CAM_URL;
-                
-                img.onload = () => {
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
-                    status.innerText = "Стрим активен";
-                    detect();
-                };
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `Ты - робот-гид в Актау. Отвечай кратко (15 слов макс). Вопрос: ${text}` }] }]
+                    })
+                });
+                const data = await res.json();
+                const reply = data.candidates[0].content.parts[0].text;
+                aiBox.innerText = reply;
+                speak(reply);
+            } catch (e) { 
+                aiBox.innerText = "Ошибка ИИ: " + e.message; 
+                console.error(e);
+            }
+        }
 
-                img.onerror = () => {
-                    status.innerText = "Ошибка стрима! Проверь IP 192.168.100.6";
-                };
+        function speak(text) {
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = 'ru-RU';
+            window.speechSynthesis.speak(msg);
+        }
 
-            } catch (e) { status.innerText = "Критическая ошибка"; }
+        // --- 3. ЗРЕНИЕ И СЛЕЖЕНИЕ ---
+        async function setup() {
+            model = await blazeface.load();
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                status.innerText = "ИИ готов. Подключите робота.";
+                detect();
+            };
         }
 
         async function detect() {
-            if (isSpeaking) { requestAnimationFrame(detect); return; }
-
-            // Используем изображение из <img> для детекции лиц
-            const preds = await model.estimateFaces(img, false);
+            if (!isTracking) return;
+            const preds = await model.estimateFaces(video, false);
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0,0, canvas.width, canvas.height);
 
             if (preds.length > 0) {
                 const face = preds[0];
-                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0]) / 2;
+                const x = face.topLeft[0] + (face.bottomRight[0] - face.topLeft[0])/2;
                 const center = canvas.width / 2;
 
                 ctx.strokeStyle = "#00ff88";
                 ctx.lineWidth = 4;
                 ctx.strokeRect(face.topLeft[0], face.topLeft[1], face.bottomRight[0]-face.topLeft[0], face.bottomRight[1]-face.topLeft[1]);
 
-                // Логика движения
-                if (x < center - 70) sendLegoMove(30, -30);
-                else if (x > center + 70) sendLegoMove(-30, 30);
+                // Порог чувствительности: 60 пикселей от центра
+                if (x < center - 60) sendLegoMove(20, -20);
+                else if (x > center + 60) sendLegoMove(-20, 20);
                 else sendLegoMove(0, 0);
             } else {
                 sendLegoMove(0, 0);
